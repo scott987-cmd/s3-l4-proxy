@@ -18,7 +18,7 @@ if [ -n "$CONFIG" ] && [ -f "$CONFIG" ]; then
 fi
 
 S3_REGION="${S3_REGION:-${REGION:-cn-beijing}}"
-S3_BACKEND_HOST="${S3_BACKEND_HOST:-${TOS_ENDPOINT:-tos-s3-${S3_REGION}.ivolces.com}}"
+S3_BACKEND_HOST="${S3_BACKEND_HOST:-${TOS_ENDPOINT:-}}"
 S3_BACKEND_PORT="${S3_BACKEND_PORT:-443}"
 LISTEN_PORT="${LISTEN_PORT:-443}"
 CONF_PATH="${CONF_PATH:-/etc/nginx/stream.d/s3-proxy.conf}"

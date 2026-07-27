@@ -2,6 +2,8 @@
 
 简体中文 | [English](README.en.md) · [在线文档](https://scott987-cmd.github.io/s3-l4-proxy/)
 
+> **⚠️ 这是第三方独立开源项目。** 本项目由个人开发者独立开发与维护，**不是任何云服务商、对象存储厂商或 SaaS 厂商的官方产品、官方方案或官方支持内容**，也未获得上述任何一方的授权、认证或背书。文中出现的产品名称与商标归各自所有者所有，仅用于说明兼容性与配置格式。
+
 四层（TCP 443 透传）代理工具包，用于从客户网络之外访问 **S3 兼容对象存储的私网 endpoint**。
 
 四层负载均衡把 TCP 443 转发到客户 ECS 上的 `nginx stream`，ECS 再经客户内网转发到对象存储私网 endpoint。代理**不终结 TLS**、**不修改 HTTP/S3 请求**、**不保存对象存储凭证**——客户端到存储桶的加密和签名保真是端到端的。
@@ -20,7 +22,7 @@ flowchart LR
     N2 -->|客户内网 TCP 443| S
 ```
 
-因为数据面是裸 TCP，所以厂商中立。已验证的实现转发到火山 TOS；只要客户端 hostname、TLS 证书、签名算法和后端私网 endpoint 相互匹配，同一套代理也能转发到 AWS S3、阿里 OSS、华为 OBS、MinIO 或 Ceph RGW。
+因为数据面是裸 TCP，所以厂商中立：本项目不绑定也不偏向任何一家对象存储。只要客户端 hostname、TLS 证书、签名算法和后端私网 endpoint 相互匹配，同一套代理可用于 AWS S3、阿里 OSS、华为 OBS、MinIO、Ceph RGW 等任意 S3 兼容实现。配置中没有任何厂商默认值，后端 endpoint 必须由你显式指定。
 
 ## 方案优势
 
@@ -158,11 +160,13 @@ bash scripts/package_l4_proxy.sh
 
 | 对象存储 | 结论 | 校验重点 |
 | --- | --- | --- |
-| 火山 TOS | 已真实环境验证 | 使用 `tos-s3-*` endpoint family；service 为 `s3`。 |
+| 火山 TOS | 作者实测环境 | 使用 `tos-s3-*` endpoint family；service 为 `s3`。 |
 | AWS S3 / S3 VPC endpoint | 设计上兼容 | endpoint、region、service，以及证书覆盖的 client host。 |
 | 阿里 OSS | TCP 层兼容 | 确认客户端使用 OSS 支持的认证协议或其 S3 兼容模式。 |
 | 华为 OBS | TCP 层兼容 | 确认 endpoint、证书与签名算法一致。 |
 | MinIO / Ceph RGW | 通常兼容 | 私有 CA 信任、path-style 与 virtual-hosted、SigV4 配置。 |
+
+> 表中「作者实测环境」仅表示作者恰好在该环境下做过端到端验证，**不代表本项目与该厂商存在任何合作、认证或背书关系**；其余厂商未做实测，结论来自数据面特性推导。所有产品名称与商标归各自所有者所有。
 
 `speed_test_l4.sh` 用 curl SigV4，适用于兼容 AWS SigV4 的 endpoint。厂商特有认证请改用厂商 CLI/SDK，但保持同样的负载均衡 hostname 解析路径。
 

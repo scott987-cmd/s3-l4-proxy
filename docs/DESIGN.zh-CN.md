@@ -84,7 +84,9 @@ flowchart LR
 
 仅当负载均衡监听明确启用 PROXY protocol 时，nginx 才设置 `ENABLE_PROXY_PROTOCOL=1`。两端配置不一致会导致普通 TLS 客户端无法连接。默认关闭。
 
-### 3.4 TOS 桶策略示例（供应商特定）
+### 3.4 桶策略示例（以某一厂商为例，非官方文档）
+
+> 以下以某家对象存储的策略语法为例说明「如何把来源收敛到代理」这一思路，其他厂商语法不同但思路一致。本项目与该厂商无任何隶属或背书关系，示例语法请以厂商官方文档为准。
 
 > ❗ **先确认实际来源：** 四层代理下 TOS 看到的是 ECS 访问私网 endpoint 时使用的源地址/网段，不是客户端出口 IP，也不一定是 ECS 公网 IP。必须通过 TOS 审计日志或网络设计确认 `volc:SourceIp` 的真实值。
 
@@ -153,11 +155,13 @@ TOS Bucket Policy：桶级与对象级权限拆分
 
 | 对象存储 | 结论 | 校验重点 |
 | --- | --- | --- |
-| 火山 TOS | 已真实验证 | 使用 `tos-s3-*` endpoint family；service 为 `s3`。 |
+| 火山 TOS | 作者实测环境 | 使用 `tos-s3-*` endpoint family；service 为 `s3`。 |
 | AWS S3 | L4 数据面兼容 | S3/VPC endpoint、region、service 与证书覆盖的 client host。 |
 | 阿里 OSS | TCP 透传兼容 | 确认客户端使用 OSS 支持的认证协议或兼容模式。 |
 | 华为 OBS | TCP 透传兼容 | 确认 endpoint、证书和签名算法一致。 |
 | MinIO / Ceph RGW | 通常兼容 | 私有 CA、path-style/virtual-hosted 和 SigV4 配置。 |
+
+> 表中「作者实测环境」仅表示作者恰好在该环境下做过端到端验证，**不代表本项目与该厂商存在任何合作、认证或背书关系**；其余厂商未做实测，结论来自数据面特性推导。所有产品名称与商标归各自所有者所有。
 
 ## 五、软件包与一键使用
 

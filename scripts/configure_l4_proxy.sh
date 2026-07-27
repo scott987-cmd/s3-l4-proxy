@@ -52,7 +52,8 @@ load_config() {
   done
 
   REGION="${S3_REGION:-${REGION:-cn-beijing}}"
-  S3_BACKEND_HOST="${S3_BACKEND_HOST:-${TOS_ENDPOINT:-tos-s3-${REGION}.ivolces.com}}"
+  S3_BACKEND_HOST="${S3_BACKEND_HOST:-${TOS_ENDPOINT:-}}"
+  [ -n "$S3_BACKEND_HOST" ] || die "S3_BACKEND_HOST is required; there is no vendor default"
   S3_BACKEND_PORT="${S3_BACKEND_PORT:-443}"
   LISTEN_PORT="${LISTEN_PORT:-443}"
   NGINX_MAIN="${NGINX_MAIN:-/etc/nginx/nginx.conf}"

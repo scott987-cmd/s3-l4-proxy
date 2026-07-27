@@ -97,6 +97,11 @@ h1 .grad{background:linear-gradient(100deg,var(--accent),var(--accent-strong));
 .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:100px;background:var(--bg-card);
   border:1px solid var(--line);font-size:13.5px;color:var(--fg-soft);font-weight:500}
 .pill svg{flex:none;color:var(--good)}
+.thirdparty{display:flex;gap:11px;align-items:flex-start;margin-top:22px;max-width:72ch;
+  padding:13px 16px;border-radius:11px;background:var(--bg-card);border:1px solid var(--line);
+  font-size:13.6px;line-height:1.62;color:var(--fg-soft)}
+.thirdparty svg{flex:none;margin-top:3px;color:var(--fg-faint)}
+.thirdparty b{color:var(--fg);font-weight:640}
 
 /* sections */
 section{padding:60px 0;border-top:1px solid var(--line-soft)}
@@ -297,6 +302,11 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
       <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>认证签名保真</span>
       <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>免维护运行</span>
       <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>全开源无授权成本</span>
+    </div>
+
+    <div class="thirdparty">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+      <div><b>这是第三方独立开源项目。</b>由个人开发者独立开发与维护，<b>不是任何云服务商、对象存储厂商或 SaaS 厂商的官方产品、官方方案或官方支持内容</b>，也未获得上述任何一方的授权、认证或背书。页面中出现的产品名称与商标归各自所有者所有，仅用于说明兼容性与配置格式。</div>
     </div>
   </div>
 </div>
@@ -647,7 +657,7 @@ CONFIG=config.env</code>
       <table>
         <thead><tr><th>对象存储</th><th>结论</th><th>校验重点</th></tr></thead>
         <tbody>
-          <tr><td>火山 TOS</td><td><span class="badge g">已真实验证</span></td><td>使用 <code>tos-s3-*</code> endpoint family；service 为 <code>s3</code>。</td></tr>
+          <tr><td>火山 TOS</td><td><span class="badge g">作者实测环境</span></td><td>使用 <code>tos-s3-*</code> endpoint family；service 为 <code>s3</code>。</td></tr>
           <tr><td>AWS S3</td><td><span class="badge n">L4 数据面兼容</span></td><td>S3/VPC endpoint、region、service 与证书覆盖的 client host。</td></tr>
           <tr><td>阿里 OSS</td><td><span class="badge n">TCP 透传兼容</span></td><td>确认客户端使用 OSS 支持的认证协议或兼容模式。</td></tr>
           <tr><td>华为 OBS</td><td><span class="badge n">TCP 透传兼容</span></td><td>确认 endpoint、证书和签名算法一致。</td></tr>
@@ -655,6 +665,9 @@ CONFIG=config.env</code>
         </tbody>
       </table>
     </div>
+    <p style="margin:14px 4px 0;color:var(--fg-faint);font-size:13.3px;line-height:1.6">
+      表中「作者实测环境」仅表示作者恰好在该环境下做过端到端验证，<b>不代表本项目与该厂商存在任何合作、认证或背书关系</b>；其余厂商未做实测，结论来自数据面特性推导。所有产品名称与商标归各自所有者所有。
+    </p>
   </div>
 </section>
 

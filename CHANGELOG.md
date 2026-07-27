@@ -21,7 +21,8 @@ All notable changes to this project are documented here. Format follows [Keep a 
 - Terminology is vendor-neutral: the frontend is described as a public load balancer with an L4 TCP listener rather than by any one vendor's product name. `LB_IP` is the current variable name; `CLB_IP` and `EIP` still work.
 - Chinese is now the repository's default language: `README.md` is Chinese and the English version moved to `README.en.md`.
 - The L4-versus-L7 comparison was removed from this solution's material. The design now argues its own case on performance, stability, operating effort and cost, and the security section states why the boundary is sufficient for most deployments rather than listing what it does not do.
-- Documentation is now vendor-neutral. `S3_BACKEND_HOST` still defaults to a Volcengine TOS endpoint for backward compatibility; that default is documented explicitly rather than assumed.
+- No vendor default anywhere: `S3_BACKEND_HOST` was previously falling back to one vendor's endpoint, so an unset value meant silently connecting to a vendor the operator never named. It is now required, and the scripts fail with a clear message. The legacy `TOS_ENDPOINT` alias still works.
+- Third-party provenance is stated up front in both READMEs, on the documentation site and in `DISCLAIMER.md`: this is an independent project, not an official or endorsed offering of any vendor. The `LICENSE` copyright holder is now filled in.
 
 ## [1.0.0] — 2026-07-27
 

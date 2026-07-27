@@ -21,7 +21,7 @@ Never commit `config.env` — `.gitignore` blocks it.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `S3_BACKEND_HOST` | `tos-s3-<S3_REGION>.ivolces.com` | Object storage endpoint the ECS host connects to. **Use the private endpoint in production.** The default is Volcengine TOS — set it explicitly for any other vendor. |
+| `S3_BACKEND_HOST` | *(none — required)* | Object storage endpoint the ECS host connects to. **Use the private endpoint in production.** There is no vendor default: the scripts fail with a clear error rather than silently connecting to any particular vendor. |
 | `S3_BACKEND_PORT` | `443` | Backend TCP port. |
 | `S3_CLIENT_HOST` | *(empty)* | Hostname the client uses for TLS SNI and request signing. Must be covered by the backend certificate. Also the host used by verification probes. |
 | `S3_REGION` | `cn-beijing` | Region for SigV4 in the verification scripts. The proxy itself is region-agnostic. |

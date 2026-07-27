@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-S3_BACKEND_HOST="tos-s3-cn-beijing.ivolces.com"
+S3_BACKEND_HOST=""
 S3_BACKEND_PORT="443"
 S3_CLIENT_HOST=""
 LISTEN_PORT="443"
@@ -43,7 +43,7 @@ done
 if [ -n "$CONF" ] && [ -f "$CONF" ]; then
   # shellcheck disable=SC1090
   source "$CONF"
-  S3_BACKEND_HOST="${S3_BACKEND_HOST:-${TOS_ENDPOINT:-tos-s3-${S3_REGION:-${REGION:-cn-beijing}}.ivolces.com}}"
+  S3_BACKEND_HOST="${S3_BACKEND_HOST:-${TOS_ENDPOINT:-}}"
   S3_BACKEND_PORT="${S3_BACKEND_PORT:-443}"
   S3_CLIENT_HOST="${S3_CLIENT_HOST:-}"
   ENABLE_PROXY_PROTOCOL="${ENABLE_PROXY_PROTOCOL:-0}"
@@ -137,7 +137,9 @@ else
 fi
 
 section "3. Upstream and passthrough"
-if getent hosts "$S3_BACKEND_HOST" >/dev/null 2>&1; then
+if [ -z "$S3_BACKEND_HOST" ]; then
+  fail "S3_BACKEND_HOST is not set (no vendor default)"
+elif getent hosts "$S3_BACKEND_HOST" >/dev/null 2>&1; then
   pass "DNS resolves $S3_BACKEND_HOST"
 else
   fail "DNS cannot resolve $S3_BACKEND_HOST"

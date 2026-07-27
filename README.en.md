@@ -2,6 +2,8 @@
 
 [简体中文](README.md) | English · [Documentation site](https://scott987-cmd.github.io/s3-l4-proxy/)
 
+> **⚠️ This is an independent third-party open-source project.** It is developed and maintained by an individual. It is **not an official product, reference architecture or supported offering of any cloud provider, object storage vendor or SaaS vendor**, and it is not authorised, certified or endorsed by any of them. Product names and trademarks belong to their respective owners and appear only to describe compatibility and configuration formats.
+
 Layer-4 (TCP 443 passthrough) proxy toolkit for reaching an **S3-compatible object storage private endpoint** from outside the customer network.
 
 A four-layer load balancer forwards TCP 443 to `nginx stream` on customer ECS hosts, which forward to the object storage private endpoint. The proxy **does not terminate TLS**, **does not modify the HTTP/S3 request**, and **holds no object-storage credentials** — the client keeps end-to-end encryption and signature fidelity all the way to the bucket.
@@ -20,7 +22,7 @@ flowchart LR
     N2 -->|customer intranet TCP 443| S
 ```
 
-Because the data path is raw TCP, it is vendor-neutral. The tested implementation forwards to Volcengine TOS; the same proxy forwards to AWS S3, Alibaba OSS, Huawei OBS, MinIO, or Ceph RGW when the client hostname, TLS certificate, signing algorithm, and private backend endpoint are mutually compatible.
+Because the data path is raw TCP, it is vendor-neutral: this project is not tied to, and does not favour, any object storage vendor. The same proxy serves AWS S3, Alibaba OSS, Huawei OBS, MinIO, Ceph RGW or any other S3-compatible implementation, provided the client hostname, TLS certificate, signing algorithm and private backend endpoint are mutually compatible. There is no vendor default anywhere in the configuration — the backend endpoint must be set explicitly.
 
 ## Why this design
 
@@ -158,11 +160,13 @@ What this compatibility is, precisely: **TCP/TLS data-plane** compatibility. Whe
 
 | Object storage | Status | What to verify |
 | --- | --- | --- |
-| Volcengine TOS | Verified in a real deployment | `tos-s3-*` endpoint family; service is `s3`. |
+| Volcengine TOS | Author's test environment | `tos-s3-*` endpoint family; service is `s3`. |
 | AWS S3 / S3 VPC endpoint | Compatible by design | Endpoint, region, service, and a client host the certificate covers. |
 | Alibaba OSS | Compatible at TCP layer | Confirm the client uses a signing protocol OSS supports (or its S3 compatibility mode). |
 | Huawei OBS | Compatible at TCP layer | Confirm endpoint, certificate, and signature algorithm line up. |
 | MinIO / Ceph RGW | Usually compatible | Private CA trust, path-style vs virtual-hosted, SigV4 configuration. |
+
+> "Author's test environment" means only that the author happened to run end-to-end verification there. It does **not** imply any partnership, certification or endorsement between this project and that vendor. The other vendors were not tested; those conclusions follow from data-plane behaviour. All product names and trademarks belong to their respective owners.
 
 `speed_test_l4.sh` uses curl SigV4 and therefore suits AWS-SigV4-compatible endpoints. For vendor-specific authentication, use the vendor CLI/SDK while keeping the same load balancer hostname resolution path.
 

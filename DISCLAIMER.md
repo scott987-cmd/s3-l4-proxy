@@ -14,7 +14,7 @@
 
 **安全与合规由使用者负责。** 你需要自行评估该架构是否满足你所处行业与地区的安全、合规、数据保护及跨境数据传输要求。文档中的安全建议属于通用工程实践，**不构成法律、合规或审计意见**。涉及个人信息或受监管数据时，请咨询你的法务与合规团队。
 
-**无厂商隶属关系。** 本项目与任何云服务商、对象存储厂商或负载均衡产品提供方均无隶属、赞助或背书关系。文中出现的产品名称与商标归各自所有者所有，仅用于说明兼容性与配置示例。
+**第三方项目，无厂商隶属关系。** 本项目是由个人开发者独立开发与维护的第三方开源项目。它**不是**任何云服务商、对象存储厂商、负载均衡产品提供方或 SaaS 厂商的官方产品、官方参考架构、官方文档或官方支持内容，也未获得上述任何一方的授权、认证、赞助或背书。文档中出现的产品名称、服务名称与商标（包括但不限于各家对象存储与云平台的名称）归各自所有者所有，出现在此仅用于说明数据面兼容性与配置格式。某一厂商被列为「已验证」，仅表示作者恰好在该环境中做过实测，不代表与该厂商存在任何合作或认可关系。
 
 **无支持义务。** 本项目按开源方式发布，不附带任何支持、维护或更新义务，也不保证缺陷会被修复。
 
@@ -36,6 +36,6 @@
 
 **Security and compliance are your responsibility.** You are responsible for assessing whether this architecture meets the security, compliance, data-protection and cross-border data transfer requirements of your industry and jurisdiction. The security guidance in this documentation is general engineering practice and does **not** constitute legal, compliance or audit advice. Where personal or regulated data is involved, consult your own legal and compliance teams.
 
-**No vendor affiliation.** This project is not affiliated with, sponsored by or endorsed by any cloud provider, object storage vendor or load balancer product. Product names and trademarks belong to their respective owners and appear only to describe compatibility and configuration examples.
+**Third-party project, no vendor affiliation.** This is a third-party open-source project developed and maintained by an individual. It is **not** an official product, reference architecture, documentation set or supported offering of any cloud provider, object storage vendor, load balancer product or SaaS vendor, and it is not authorised, certified, sponsored or endorsed by any of them. Product names, service names and trademarks in this documentation belong to their respective owners and appear only to describe data-plane compatibility and configuration formats. A vendor listed as "verified" means only that the author happened to test in that environment; it implies no partnership or approval.
 
 **No support obligation.** This project is released as open source with no obligation of support, maintenance or updates, and no guarantee that defects will be fixed.

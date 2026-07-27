@@ -8,7 +8,7 @@ usage() {
 Usage:
   sudo bash scripts/install_l4_proxy.sh [CONFIG=config.env] [KEY=VALUE ...]
 
-Installs nginx/stream module and applies the L4 TOS stream proxy config.
+Installs nginx/stream module and applies the L4 S3 stream proxy config.
 USAGE
 }
 

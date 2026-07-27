@@ -169,7 +169,7 @@ if command -v ss >/dev/null 2>&1; then
   extra="$(ss -tlnH 2>/dev/null | awk '{print $4}' | sed 's/.*://' \
     | grep -vE "^(${LISTEN_PORT}|22)$" | sort -u | paste -sd, -)"
   if [ -z "$extra" ]; then
-    pass "no extra listening TCP ports except ${LISTEN_PORT}/22"
+    pass "no unexpected listening TCP ports beyond ${LISTEN_PORT}"
   elif [ "$WARN_EXTRA_PORTS" = "1" ]; then
     warn "extra listening TCP ports: $extra"
   fi

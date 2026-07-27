@@ -76,7 +76,7 @@ Never commit `config.env` — `.gitignore` blocks it.
 | `OBJECT_PREFIX` | `l4-proxy-test` | Test object key prefix. |
 | `LOG_FILE` | `/var/log/nginx/s3-stream.log` | Log tailed by `ops_l4_proxy.sh logs`. |
 | `LINES` | `100` | Lines shown by `ops_l4_proxy.sh logs`. |
-| `WARN_EXTRA_PORTS` | `1` | Warn when ports other than `LISTEN_PORT`/22 are listening. |
+| `WARN_EXTRA_PORTS` | `1` | Warn when unexpected TCP ports are listening beyond the proxy listener and normal host administration. |
 
 ## Credentials
 

@@ -113,14 +113,7 @@ bash scripts/package_l4_proxy.sh
 4. The client's signing protocol is accepted by the target endpoint — region, service and endpoint family must match.
 5. The load balancer listener is TCP (layer 4); no device in the path modifies TLS or the application-layer request.
 6. Production runs at least two ECS hosts across availability zones, with TCP health checks and N+1 capacity headroom.
-
-## Not a fit when you need
-
-- Virtual AK/SK translation, STS, credential brokering, delegated or re-signing.
-- Host/path rewriting, path-style ↔ virtual-hosted conversion, cross-vendor protocol translation.
-- HTTP WAF, header/body inspection, object-level rate limiting, tenant authz, object-level audit, or content scanning.
-- A client hostname the backend certificate does not cover, with no compatible endpoint/SNI relationship available.
-- load balancer ACLs, security-group allowlists, or multi-backend HA that your environment cannot provide (exposing a single bare ECS public IP is not an acceptable substitute).
+7. Load balancer ACLs and security-group allowlists are available — do not expose a bare single ECS public IP instead.
 
 ## Security model
 
@@ -129,7 +122,7 @@ bash scripts/package_l4_proxy.sh
 | Data | Client-side encryption | Encrypt sensitive data with the customer KMS before it leaves the client side; proxy and storage only ever see ciphertext. |
 | Transport | End-to-end TLS | Neither load balancer nor nginx terminates TLS; no certificates or private keys on the proxy. |
 | Ingress | load balancer ACL + security group | Allow only the client's fixed egress IPs; ECS 443 accepts only load balancer/approved sources. |
-| Proxy | Host and egress narrowing | Dedicated host listens on 443/22 only; egress limited to DNS, ops dependencies, and the storage private endpoint. |
+| Proxy | Host and egress narrowing | Dedicated host exposes only business port 443; egress limited to DNS, ops dependencies, and the storage private endpoint. |
 | Storage | Least privilege + source restriction | Dedicated sub-account/role scoped to the target bucket; bucket policy pinned to the proxy's real source address. |
 
 - **Enough for most deployments.** Authorization and object-level audit are authoritative in the object storage itself — IAM, bucket policy and audit log all take effect there. Not re-implementing them at the proxy does not make them absent, while decrypting mid-path would add a component holding both plaintext and keys: one more place to defend, rotate and audit.

@@ -25,7 +25,7 @@ Because reachability is what the proxy actually holds, the controls below focus 
 | Data | Client-side encryption | Encrypt sensitive data with your own KMS before it leaves the client side. |
 | Transport | End-to-end TLS | The load balancer listener must be TCP. A TLS-terminating listener silently breaks this property. |
 | Ingress | load balancer ACL + security group | Allow only the client's fixed egress IPs to the load balancer; allow ECS `LISTEN_PORT` only from the load balancer. |
-| Proxy host | Port and egress narrowing | Dedicated host, `LISTEN_PORT` and SSH only. Optional `EGRESS_LOCK=1` restricts outbound to DNS, SSH, `EXTRA_ALLOW`, and the resolved backend. |
+| Proxy host | Port and egress narrowing | Dedicated host exposing only `LISTEN_PORT`. Optional `EGRESS_LOCK=1` restricts outbound to DNS, `EXTRA_ALLOW`, and the resolved backend. |
 | Storage | Least privilege | A dedicated sub-account/role scoped to one bucket and only the required actions. Grant `DeleteObject` only when the workload needs it. |
 | Storage | Source restriction | Pin the bucket policy to the proxy's **real** source address. |
 
@@ -41,17 +41,11 @@ Authorization and object-level audit have their authoritative home in the object
 
 The reverse is what actually costs security. Any design that decrypts mid-path adds a component holding both plaintext and keys: one more place that must be defended, rotated, patched and audited, and one more place where a compromise yields data. This design decrypts nothing, holds no credential and stores no private key. An attacker who takes the proxy host gets neither the objects nor the keys — only network reachability that the load balancer ACL, the security group and the bucket policy have already narrowed three times over.
 
-## What the proxy layer does not enforce
+## The visibility boundary
 
-L4 has no visibility into encrypted HTTP, so these are not enforced *at the proxy*:
+L4 has no visibility into encrypted HTTP. The proxy therefore does not evaluate or record anything at the object level — it cannot see bucket, key, action or access key, and it does not attempt to. Authorization and audit are decided and recorded by the object storage itself, which is where they are authoritative anyway, and the proxy adding no second copy means no additional data-retention surface.
 
-- object-level authorization or per-tenant access control
-- object-level audit (who read which key)
-- rate limiting by bucket, key, or action
-- WAF header/body inspection or content scanning
-- credential translation, brokering, or re-signing
-
-The first two are normally covered by the storage's own IAM and audit log, which is why most deployments need nothing further. A deployment that must additionally enforce the rest *inside the network path* needs a control outside this design — do not attempt to approximate one with TCP-level rules.
+Treat this as a property to design around rather than a gap to patch: do not try to approximate object-level controls with TCP-level rules, because the information needed to make those decisions is not present at this layer.
 
 ## Known operational risks
 

@@ -43,7 +43,7 @@ grep -n 'proxy_pass' /etc/nginx/stream.d/s3-proxy.conf
 CLB_IP=<clb> S3_CLIENT_HOST=<host> bash scripts/diag_clb_l4.sh   # step 2 prints subject/issuer
 ```
 
-**Fix.** Use a client hostname the backend certificate covers, or ask the vendor for an equivalent endpoint/SNI pair. A CLB that terminates TLS (L7 listener) also breaks this — the listener must be TCP.
+**Fix.** Use a client hostname the backend certificate covers, or ask the vendor for an equivalent endpoint/SNI pair. A CLB listener that terminates TLS also breaks this — the listener must be TCP.
 
 ---
 
@@ -142,4 +142,4 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ## What the proxy cannot tell you
 
-`nginx stream` sees encrypted bytes. The access log records source, duration, bytes, status and upstream — never bucket, object key, access key, or HTTP action. If you need object-level answers, get them from the client, the storage audit log, or an L7 gateway. No amount of proxy configuration changes this.
+`nginx stream` sees encrypted bytes. The access log records source, duration, bytes, status and upstream — never bucket, object key, access key, or HTTP action. If you need object-level answers, get them from the client or the storage audit log. No amount of proxy configuration changes this.

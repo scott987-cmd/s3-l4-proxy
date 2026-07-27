@@ -2,12 +2,12 @@
 
 ## Ground rules
 
-This toolkit's value is that it does **less** than a gateway. Two properties are not negotiable:
+This toolkit's value is in what it deliberately does **not** do. Two properties are not negotiable:
 
 1. **The proxy never terminates TLS.** No `ssl`, `ssl_certificate`, or `ssl_certificate_key` in any stream config.
 2. **The proxy never holds storage credentials.** No AK/SK, token, or signing material on the proxy path.
 
-A change that breaks either one is out of scope here — it belongs in an L7 gateway. CI enforces both.
+A change that breaks either one is out of scope here. CI enforces both.
 
 A third rule follows from experience rather than design: **the upstream must not be a variable.** `proxy_pass $host` puts nginx on the runtime resolver path and causes periodic connection resets. Use the fixed `upstream s3_backend` block; DNS changes are handled by the reload timer.
 

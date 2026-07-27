@@ -253,7 +253,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
     <a class="brand" href="#top"><span class="dot"></span>S3 四层代理方案</a>
     <nav class="nav-links">
       <a href="#arch">架构</a>
-      <a href="#scope" class="hide-sm">适用边界</a>
+      <a href="#scope" class="hide-sm">方案优势</a>
       <a href="#security">安全设计</a>
       <a href="#flow">部署流程</a>
       <a href="#rollback" class="hide-sm">变更回滚</a>
@@ -282,6 +282,8 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
       使用四层 CLB TCP 443 透传与 nginx stream，把 S3 客户端流量转发到客户网络中的
       <b>S3 兼容对象存储私网 endpoint</b>。代理不终结 TLS、不修改 HTTP/S3 请求、不保存对象存储凭证——
       客户端到对象存储的<b>加密与认证签名保真是端到端的</b>。
+      转发路径短，性能接近网卡上限；没有证书、凭证与会话状态需要照看，日常人力投入趋近于零；
+      数据面全部基于开源 nginx，<b>无授权费用、无厂商锁定</b>。
     </p>
     <div class="cta">
       <a class="btn btn-primary" href="#flow">看部署流程
@@ -292,8 +294,8 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
     <div class="pills">
       <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>端到端 TLS</span>
       <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>认证签名保真</span>
-      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>无状态横向扩展</span>
-      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>通用 S3 数据面</span>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>免维护运行</span>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>全开源无授权成本</span>
     </div>
   </div>
 </div>
@@ -378,26 +380,36 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
   </div>
 </section>
 
-<!-- ============ 四层 vs 七层 + 适用边界 ============ -->
+<!-- ============ 方案优势 + 适用边界 ============ -->
 <section id="scope">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-label">二、使用前提与不适用场景</div>
-      <h2>先判断该不该用，再谈怎么用</h2>
-      <p>四层不是「功能更少的网关」，而是另一个层次。这个区分决定方案是否成立。</p>
+      <div class="sec-label">二、方案优势与使用前提</div>
+      <h2>转发路径越短，越快、越稳、越省事、越便宜</h2>
+      <p>代理只做一件事：把 TCP 字节原样搬过去。少做的每一件事，都换来一份性能、一份稳定性、一份人力与成本的节省。</p>
     </div>
 
-    <div class="tw" style="margin-bottom:22px">
-      <table>
-        <thead><tr><th>需求</th><th>四层 TCP 透传</th><th>七层网关</th></tr></thead>
-        <tbody>
-          <tr><td>TLS 与签名原样透传</td><td><span class="badge g">✓ 推荐</span></td><td>需严格保持签名语义</td></tr>
-          <tr><td>虚拟 AK/SK、代签或重签</td><td><span class="badge r">✗ 不支持</span></td><td><span class="badge g">✓ 支持</span></td></tr>
-          <tr><td>Host/path 改写、寻址转换</td><td><span class="badge r">✗ 不支持</span></td><td><span class="badge g">✓ 支持</span></td></tr>
-          <tr><td>对象级鉴权、限流和审计</td><td><span class="badge r">✗ HTTP 不可见</span></td><td><span class="badge g">✓ 支持</span></td></tr>
-          <tr><td>WAF Header/Body 检查</td><td><span class="badge r">✗ 不支持</span></td><td><span class="badge g">✓ 支持</span></td></tr>
-        </tbody>
-      </table>
+    <div class="grid g2" style="margin-bottom:24px">
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h8l-1 8 10-12h-8l1-8z"/></svg></div>
+        <h3>性能：代理不构成瓶颈</h3>
+        <p>不解密、不重组、不解析 HTTP、不重新计算签名——没有 TLS 终结与二次握手，也没有应用层缓冲。实测单连接 <b>78–98 MB/s</b>，瓶颈已接近测试实例网卡上限，转发本身不带来额外损耗；要更高吞吐，换更大带宽的实例即可线性提升。</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
+        <h3>稳定性：故障面小到可以穷举</h3>
+        <p>不持证书就没有证书过期与轮换引发的故障；不持凭证就没有密钥失效类故障；无会话状态则单节点异常只需被 CLB 摘除，连接重建即可恢复。固定 upstream 消除了变量 resolver 路径导致的<b>周期性连接重置</b>；跨可用区 N+1 与失败自动回滚兜住剩余风险。</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/><path d="M21 3v6h-6"/></svg></div>
+        <h3>人力：部署一条命令，日常一条命令</h3>
+        <p>部署、巡检、验收、运维各一条命令，<code class="inl">health</code> 的退出码可直接接监控告警。证书轮换零动作、密钥轮换零动作、后端 DNS 变更由定时器自动跟进、扩容只是把同一份配置装到新节点再加进 CLB——<b>没有需要人盯着的日常操作</b>。</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+        <h3>成本：全开源，无授权费用</h3>
+        <p>数据面只依赖 <b>nginx + ngx_stream_module</b>，来自发行版官方仓库，无闭源组件、无 license 费用、无按量计费的中间件、无厂商锁定。全部资源开销就是两台 ECS 与一个四层 CLB；不解密不解析，CPU 花在网络 I/O 上，普通规格实例即可承载。</p>
+      </div>
     </div>
 
     <div class="grid g2">
@@ -419,7 +431,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
         <ul class="ynlist" style="margin-top:12px">
           <li><span class="m no">✗</span><span>需要虚拟 AK/SK 转换、STS 获取、凭证托管、代签或重签</span></li>
           <li><span class="m no">✗</span><span>需要改写 Host/path、path-style 与 virtual-hosted 转换</span></li>
-          <li><span class="m no">✗</span><span>需要 WAF、对象级限流、租户鉴权、对象级审计或内容扫描</span></li>
+          <li><span class="m no">✗</span><span>必须<b>在代理层</b>实施 WAF、对象级限流、租户鉴权或内容扫描（对象存储侧的 IAM 与审计不受影响）</span></li>
           <li><span class="m no">✗</span><span>客户端 hostname 不被后端证书覆盖且无兼容组合</span></li>
           <li><span class="m no">✗</span><span>客户端无法生成目标对象存储要求的认证协议</span></li>
           <li><span class="m no">✗</span><span>无法配置 CLB ACL 与多后端高可用，只能裸露单台 ECS 公网地址</span></li>
@@ -434,8 +446,8 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-label">三、安全设计</div>
-      <h2>五层安全边界</h2>
-      <p>代理机上真正持有的资产只有「网络可达性」。因此控制项全部围绕收敛可达性展开。</p>
+      <h2>五层安全边界：对绝大多数场景已经足够</h2>
+      <p>代理机上真正持有的资产只有「网络可达性」——没有明文、没有凭证、没有私钥。因此控制项全部围绕收敛可达性展开，被攻破时的损失面也被压到最小。</p>
     </div>
 
     <div class="layers">
@@ -466,10 +478,15 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
       </div>
     </div>
 
-    <div class="grid g2" style="margin-top:20px">
-      <div class="note bad">
+    <div class="note good" style="margin-top:20px">
+      <span class="ni">✓</span>
+      <div><b>为什么这套边界对多数客户已经够用。</b>鉴权与对象级审计的<b>权威点本来就在对象存储自身</b>——IAM 主体、桶策略、审计日志都在那一侧完整生效，代理层不重复实现，并不等于这些能力缺失。反过来，任何在链路中间解密的做法，都会新增一个同时持有<b>明文与密钥</b>的组件，也就多出一个必须防守、必须轮换、必须审计的位置。本方案不解密、不持凭证、不存私钥，攻破代理机拿不到数据也拿不到密钥，能拿到的只有一条被 ACL、安全组和桶策略三重收敛过的网络可达性。</div>
+    </div>
+
+    <div class="grid g2" style="margin-top:14px">
+      <div class="note">
         <span class="ni">!</span>
-        <div><b>L4 可见性限制。</b>代理看不到加密后的 HTTP/S3 语义，<b>不能</b>记录 bucket、object key、access key 或请求动作。nginx stream 只能记录连接来源、时长、字节数、状态和上游地址。对象级审计必须由客户端、对象存储审计日志或七层网关完成。</div>
+        <div><b>需要知道的可见性边界。</b>代理看不到加密后的 HTTP/S3 语义，因此<b>不在代理侧</b>记录 bucket、object key、access key 或请求动作，nginx stream 只记录连接来源、时长、字节数、状态和上游地址。对象级追溯请取自客户端与对象存储审计日志；代理不重复采集，也就不引入新的数据留存面。</div>
       </div>
       <div class="note">
         <span class="ni">!</span>

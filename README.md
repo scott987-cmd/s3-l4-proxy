@@ -22,17 +22,15 @@ flowchart LR
 
 Because the data path is raw TCP, it is vendor-neutral. The tested implementation forwards to Volcengine TOS; the same proxy forwards to AWS S3, Alibaba OSS, Huawei OBS, MinIO, or Ceph RGW when the client hostname, TLS certificate, signing algorithm, and private backend endpoint are mutually compatible.
 
-## Why L4 instead of an L7 gateway
+## Why this design
 
-| Requirement | L4 TCP passthrough | L7 gateway |
-| --- | --- | --- |
-| TLS and signature passed through untouched | ✅ recommended | needs strict signature preservation |
-| Virtual AK/SK, delegated or re-signing | ❌ | ✅ |
-| Host/path rewrite, addressing-style conversion | ❌ | ✅ |
-| Object-level authz, rate limiting, audit | ❌ (HTTP is opaque) | ✅ |
-| WAF header/body inspection | ❌ | ✅ |
+**Performance — the proxy is not the bottleneck.** No decryption, no reassembly, no HTTP parsing, no signature recomputation, no TLS termination and no second handshake. Measured single-connection throughput reached 78–98 MB/s, already close to the test instance NIC ceiling: forwarding itself adds no meaningful cost, and more throughput is one larger instance away.
 
-Pick L4 when you need a transparent network path. Pick L7 when you need to *understand or rewrite* S3 semantics.
+**Stability — a failure surface small enough to enumerate.** No certificate on the proxy means no expiry or rotation failures. No credential means no key-expiry failures. No session state means a sick node is simply dropped by the health check and connections re-establish elsewhere. The fixed upstream removes the periodic connection resets a variable `proxy_pass` causes, and cross-AZ N+1 plus automatic rollback covers what is left.
+
+**Operations — one command to deploy, one to watch.** Deploy, inspect, accept and operate are one command each, and `health` exits 0/1/2 straight into monitoring. Certificate rotation takes no action here, key rotation takes no action here, backend DNS changes are picked up by a timer, and scaling out is the same config on a new host added to the backend group. There is no recurring manual task.
+
+**Cost — fully open source, no licence fees.** The data path is nginx plus `ngx_stream_module` from the distribution's own repositories: no closed-source component, no licence, no metered middleware, no vendor lock-in. The whole footprint is two ECS hosts and one L4 load balancer, and since nothing is decrypted or parsed the CPU goes to network I/O, so ordinary instance sizes are enough.
 
 ## Quick start
 
@@ -120,8 +118,6 @@ bash scripts/package_l4_proxy.sh
 - A client hostname the backend certificate does not cover, with no compatible endpoint/SNI relationship available.
 - CLB ACLs, security-group allowlists, or multi-backend HA that your environment cannot provide (exposing a single bare ECS public IP is not an acceptable substitute).
 
-Use an L7 SigV4 gateway for any of the above.
-
 ## Security model
 
 | Layer | Control | Production requirement |
@@ -132,7 +128,8 @@ Use an L7 SigV4 gateway for any of the above.
 | Proxy | Host and egress narrowing | Dedicated host listens on 443/22 only; egress limited to DNS, ops dependencies, and the storage private endpoint. |
 | Storage | Least privilege + source restriction | Dedicated sub-account/role scoped to the target bucket; bucket policy pinned to the proxy's real source address. |
 
-- **L4 visibility limit.** The proxy cannot see encrypted HTTP/S3 semantics — it cannot log bucket, object key, access key, or action. `nginx stream` logs only source, duration, bytes, status and upstream. Object-level auditing must come from the client, the object storage audit log, or an L7 gateway.
+- **Enough for most deployments.** Authorization and object-level audit are authoritative in the object storage itself — IAM, bucket policy and audit log all take effect there. Not re-implementing them at the proxy does not make them absent, while decrypting mid-path would add a component holding both plaintext and keys: one more place to defend, rotate and audit.
+- **L4 visibility boundary.** The proxy cannot see encrypted HTTP/S3 semantics, so it does not log bucket, object key, access key, or action. `nginx stream` logs only source, duration, bytes, status and upstream. Object-level traceability comes from the client and the storage audit log; the proxy not collecting it also means no new data-retention surface.
 - **No `ssl`/`ssl_certificate` directives** appear in the generated stream config, and `configure_l4_proxy.sh` fails the run if the rendered config ever contains a variable `proxy_pass`.
 - **PROXY protocol is off by default.** Set `ENABLE_PROXY_PROTOCOL=1` only when the CLB listener explicitly enables it — a mismatch breaks plain TLS clients.
 - **Egress lock is off by default** so it cannot strand a host with other outbound dependencies. When enabled it uses a dedicated `S3_L4_EGRESS` chain and never flushes existing `OUTPUT` rules; `ops_l4_proxy.sh unlock-egress` reverses it.

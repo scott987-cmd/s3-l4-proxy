@@ -1,5 +1,7 @@
 # s3-l4-proxy
 
+English | [简体中文](README.zh-CN.md) · [Documentation site](https://scott987-cmd.github.io/s3-l4-proxy/)
+
 Layer-4 (TCP 443 passthrough) proxy toolkit for reaching an **S3-compatible object storage private endpoint** from outside the customer network.
 
 A four-layer load balancer forwards TCP 443 to `nginx stream` on customer ECS hosts, which forward to the object storage private endpoint. The proxy **does not terminate TLS**, **does not modify the HTTP/S3 request**, and **holds no object-storage credentials** — the client keeps end-to-end encryption and signature fidelity all the way to the bucket.
@@ -200,7 +202,13 @@ Stream access log: `/var/log/nginx/s3-stream.log` (rotated daily, 15 generations
 
 ## Documentation
 
-- [docs/DESIGN.zh-CN.md](docs/DESIGN.zh-CN.md) — full production design (Chinese): security boundary, TOS bucket-policy example, verification record, go-live checklist.
+- [Configuration reference](docs/CONFIGURATION.md) — every variable, its default, and precedence rules
+- [Operations runbook](docs/OPERATIONS.md) — daily checks, scaling, change management, emergencies
+- [Troubleshooting](docs/TROUBLESHOOTING.md) — symptom → cause → fix
+- [Security policy](SECURITY.md) — threat model, controls, and what L4 cannot do
+- [Contributing](CONTRIBUTING.md) — the two non-negotiable properties and how to test a change
+- [Changelog](CHANGELOG.md)
+- [完整生产方案（中文）](docs/DESIGN.zh-CN.md) — full production design in Chinese: security boundary, TOS bucket-policy example, verification record, go-live checklist
 
 ## License
 

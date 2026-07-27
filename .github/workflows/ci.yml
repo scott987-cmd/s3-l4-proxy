@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    name: Shell syntax and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse every script
+        run: |
+          for f in scripts/*.sh; do
+            bash -n "$f" || exit 1
+          done
+
+      - name: ShellCheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck --severity=warning scripts/*.sh
+
+      - name: Scripts are executable
+        run: |
+          for f in scripts/*.sh; do
+            test -x "$f" || { echo "not executable: $f"; exit 1; }
+          done
+
+  nginx:
+    name: nginx config renders and passes nginx -t
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nginx with the stream module
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nginx libnginx-mod-stream
+
+      - name: Render the stream template
+        run: |
+          mkdir -p rendered
+          sed "s|__S3_BACKEND_HOST__|s3-backend.internal.example.com|g; \
+               s|__S3_BACKEND_PORT__|443|g; \
+               s|__LISTEN_PORT__|8443|g; \
+               s|__LISTEN_OPTIONS__||g; \
+               s|__CLIENT_ADDR_VAR__|\$remote_addr|g" \
+            templates/s3-stream.conf > rendered/s3-proxy.conf
+          cat rendered/s3-proxy.conf
+
+      - name: Reject a variable proxy_pass
+        run: |
+          if grep -Eq 'proxy_pass[[:space:]]+\$' rendered/s3-proxy.conf; then
+            echo "variable proxy_pass in rendered config"
+            exit 1
+          fi
+
+      - name: Reject TLS termination in the stream config
+        run: |
+          if grep -Eq 'ssl_certificate|ssl_certificate_key' rendered/s3-proxy.conf; then
+            echo "stream config must not terminate TLS"
+            exit 1
+          fi
+
+      - name: nginx -t against the rendered config
+        run: |
+          sudo mkdir -p /etc/nginx/stream.d
+          sudo cp rendered/s3-proxy.conf /etc/nginx/stream.d/s3-proxy.conf
+          sudo sed -i "s|__NGINX_USER__|www-data|g" templates/nginx-main.conf
+          sudo cp templates/nginx-main.conf /etc/nginx/nginx.conf
+          sudo nginx -t
+
+  secrets:
+    name: No credentials in the tree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Key-shaped strings and private keys
+        run: |
+          if grep -RInE --exclude-dir=.git --exclude=package_l4_proxy.sh --exclude=ci.yml \
+            'AKLT[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{16}|LTAI[A-Za-z0-9]{12,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' .; then
+            echo "potential credential committed"
+            exit 1
+          fi
+
+      - name: Example config carries no secret value
+        run: |
+          if grep -En '^(AWS_SECRET_ACCESS_KEY|S3_SECRET_KEY|S3_ACCESS_KEY|TOS_SK|TOS_AK)=.+' config.example.env; then
+            echo "config.example.env must not contain credentials"
+            exit 1
+          fi
+
+      - name: Real config is not committed
+        run: |
+          if git ls-files --error-unmatch config.env 2>/dev/null; then
+            echo "config.env must never be committed"
+            exit 1
+          fi

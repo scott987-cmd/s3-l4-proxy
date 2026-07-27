@@ -40,7 +40,7 @@ Actions:
   upstream      Resolve and test S3 backend
   config        Print active stream config
   nofile        Apply worker/systemd nofile limit
-  unlock-egress Restore OUTPUT policy to ACCEPT and flush OUTPUT chain
+  unlock-egress Remove the dedicated S3_L4_EGRESS chain; existing OUTPUT rules are untouched
 USAGE
 }
 

@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>s3-l4-proxy — L4 TCP passthrough for S3-compatible storage</title>
+<meta name="description" content="Layer-4 TCP 443 passthrough proxy toolkit for reaching S3-compatible object storage private endpoints. No TLS termination, no credentials on the proxy, vendor-neutral.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%80%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#fbfcfd; --bg-soft:#f2f5f8; --bg-card:#ffffff;
+  --fg:#111a24; --fg-soft:#4a5b6d; --fg-faint:#7b8b9c;
+  --line:#e0e7ee; --line-soft:#eef2f6;
+  --accent:#0a7d8c; --accent-soft:#e6f4f6; --accent-strong:#065b66;
+  --warn:#a2611a; --warn-soft:#fdf3e4;
+  --bad:#b3372f; --bad-soft:#fdeceb;
+  --good:#1d7a4a; --good-soft:#e8f6ee;
+  --code-bg:#0e1720; --code-fg:#dbe6f0;
+  --shadow:0 1px 2px rgba(16,32,48,.05), 0 8px 24px -12px rgba(16,32,48,.18);
+  --radius:14px;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root[data-theme="auto"]{
+    --bg:#0b1118; --bg-soft:#111a23; --bg-card:#141f2a;
+    --fg:#e8eef5; --fg-soft:#a6b6c6; --fg-faint:#738799;
+    --line:#22303d; --line-soft:#1a2634;
+    --accent:#3fbccd; --accent-soft:#0f2b31; --accent-strong:#7ad6e3;
+    --warn:#d9a05b; --warn-soft:#2b2113;
+    --bad:#e08a82; --bad-soft:#2d1715;
+    --good:#5ec98c; --good-soft:#10281c;
+    --code-bg:#080d13; --code-fg:#d3e0ec;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b1118; --bg-soft:#111a23; --bg-card:#141f2a;
+  --fg:#e8eef5; --fg-soft:#a6b6c6; --fg-faint:#738799;
+  --line:#22303d; --line-soft:#1a2634;
+  --accent:#3fbccd; --accent-soft:#0f2b31; --accent-strong:#7ad6e3;
+  --warn:#d9a05b; --warn-soft:#2b2113;
+  --bad:#e08a82; --bad-soft:#2d1715;
+  --good:#5ec98c; --good-soft:#10281c;
+  --code-bg:#080d13; --code-fg:#d3e0ec;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:76px;-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
+  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1060px;margin:0 auto;padding:0 24px}
+
+/* ---------- nav ---------- */
+header.nav{
+  position:sticky;top:0;z-index:50;
+  background:color-mix(in srgb,var(--bg) 86%,transparent);
+  backdrop-filter:saturate(1.6) blur(12px);
+  border-bottom:1px solid var(--line);
+}
+.nav-in{display:flex;align-items:center;gap:20px;height:60px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:-.02em;color:var(--fg);font-size:15.5px}
+.brand:hover{text-decoration:none}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft);flex:none}
+.nav-links{display:flex;gap:22px;margin-left:auto;align-items:center}
+.nav-links a{color:var(--fg-soft);font-size:14px;font-weight:500}
+.nav-links a:hover{color:var(--fg);text-decoration:none}
+.icon-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:34px;height:34px;border-radius:9px;border:1px solid var(--line);
+  background:var(--bg-card);color:var(--fg-soft);cursor:pointer;flex:none;padding:0;
+}
+.icon-btn:hover{color:var(--fg);border-color:var(--fg-faint)}
+.nav-gh{
+  display:inline-flex;align-items:center;gap:7px;font-size:13.5px;font-weight:550;
+  padding:7px 13px;border-radius:9px;border:1px solid var(--line);background:var(--bg-card);color:var(--fg)!important;
+}
+.nav-gh:hover{border-color:var(--fg-faint);text-decoration:none}
+@media(max-width:860px){.nav-links a.hide-sm{display:none}}
+
+/* ---------- hero ---------- */
+.hero{padding:76px 0 56px;position:relative;overflow:hidden}
+.hero::before{
+  content:"";position:absolute;inset:-40% 20% auto -10%;height:520px;
+  background:radial-gradient(closest-side,var(--accent-soft),transparent 70%);
+  opacity:.85;pointer-events:none;
+}
+.hero-in{position:relative}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--accent);
+  background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);
+  padding:5px 12px;border-radius:100px;margin-bottom:22px;
+}
+h1{
+  font-size:clamp(34px,5.4vw,56px);line-height:1.08;letter-spacing:-.035em;
+  margin:0 0 20px;font-weight:700;max-width:16ch;
+}
+h1 .grad{
+  background:linear-gradient(100deg,var(--accent),var(--accent-strong));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.lede{font-size:clamp(16.5px,2vw,19px);color:var(--fg-soft);max-width:62ch;margin:0 0 30px}
+.lede b{color:var(--fg);font-weight:600}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:38px}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:11px;
+  font-size:14.5px;font-weight:600;border:1px solid transparent;cursor:pointer;
+}
+.btn:hover{text-decoration:none}
+.btn-primary{background:var(--accent);color:#fff!important;box-shadow:var(--shadow)}
+.btn-primary:hover{background:var(--accent-strong)}
+.btn-ghost{background:var(--bg-card);border-color:var(--line);color:var(--fg)!important}
+.btn-ghost:hover{border-color:var(--fg-faint)}
+
+.pills{display:flex;flex-wrap:wrap;gap:10px}
+.pill{
+  display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:100px;
+  background:var(--bg-card);border:1px solid var(--line);font-size:13.5px;color:var(--fg-soft);
+  font-weight:500;
+}
+.pill svg{flex:none;color:var(--good)}
+
+/* ---------- sections ---------- */
+section{padding:64px 0;border-top:1px solid var(--line-soft)}
+section:first-of-type{border-top:0}
+.sec-head{margin-bottom:34px;max-width:64ch}
+.sec-label{
+  font-size:12.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:10px;
+}
+h2{font-size:clamp(25px,3.2vw,33px);line-height:1.2;letter-spacing:-.025em;margin:0 0 12px;font-weight:680}
+h3{font-size:18px;letter-spacing:-.015em;margin:0 0 8px;font-weight:640}
+.sec-head p{color:var(--fg-soft);margin:0;font-size:16.5px}
+
+/* ---------- diagram ---------- */
+.diagram{
+  background:var(--bg-card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:26px 20px 18px;box-shadow:var(--shadow);overflow-x:auto;
+}
+.diagram svg{display:block;width:100%;min-width:640px;height:auto}
+.dg-label{fill:var(--fg);font-family:var(--sans);font-size:13px;font-weight:600}
+.dg-sub{fill:var(--fg-faint);font-family:var(--mono);font-size:10.5px}
+.dg-edge{fill:var(--fg-faint);font-family:var(--sans);font-size:11px;font-weight:500}
+.dg-box{fill:var(--bg-soft);stroke:var(--line);stroke-width:1.5}
+.dg-box-accent{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
+.dg-line{stroke:var(--line);stroke-width:2;fill:none}
+.dg-flow{stroke:var(--accent);stroke-width:2;fill:none;opacity:.55}
+.dg-tls{stroke:var(--good);stroke-width:1.5;fill:none;stroke-dasharray:5 4;opacity:.75}
+.dg-tls-label{fill:var(--good);font-family:var(--sans);font-size:11.5px;font-weight:600}
+.dot-anim{fill:var(--accent)}
+@media(prefers-reduced-motion:reduce){.dot-anim{display:none}}
+.diagram figcaption{
+  margin:16px 4px 0;color:var(--fg-faint);font-size:13.5px;line-height:1.6;
+  border-top:1px solid var(--line-soft);padding-top:14px;
+}
+
+/* ---------- cards ---------- */
+.grid{display:grid;gap:16px}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g2{grid-template-columns:repeat(2,1fr)}
+@media(max-width:820px){.g3,.g2{grid-template-columns:1fr}}
+.card{
+  background:var(--bg-card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:22px;
+}
+.card.hoverable{transition:border-color .16s,transform .16s,box-shadow .16s}
+.card.hoverable:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow)}
+.card p{margin:0;color:var(--fg-soft);font-size:14.5px;line-height:1.62}
+.card .ico{
+  width:36px;height:36px;border-radius:10px;background:var(--accent-soft);color:var(--accent);
+  display:flex;align-items:center;justify-content:center;margin-bottom:14px;
+}
+.card a.title{color:var(--fg);display:flex;align-items:center;gap:6px}
+.card a.title:hover{color:var(--accent);text-decoration:none}
+
+/* ---------- code ---------- */
+.code{
+  position:relative;background:var(--code-bg);border-radius:12px;
+  border:1px solid color-mix(in srgb,var(--code-bg) 70%,var(--line));
+  margin:0 0 14px;overflow:hidden;
+}
+.code-head{
+  display:flex;align-items:center;gap:10px;padding:9px 14px;
+  border-bottom:1px solid rgba(255,255,255,.07);
+}
+.code-head span{font-family:var(--mono);font-size:11.5px;color:#8ba1b6;letter-spacing:.02em}
+.copy{
+  margin-left:auto;background:rgba(255,255,255,.07);border:0;color:#c3d3e2;
+  font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:6px;cursor:pointer;
+  font-family:var(--sans);
+}
+.copy:hover{background:rgba(255,255,255,.14);color:#fff}
+.copy.done{background:var(--good);color:#fff}
+.code pre{
+  margin:0;padding:15px 16px;overflow-x:auto;
+  font-family:var(--mono);font-size:13px;line-height:1.72;color:var(--code-fg);
+}
+.code pre .c{color:#6f8497}
+.code pre .k{color:#7ad6e3}
+.code pre .s{color:#b5d99c}
+code.inl{
+  font-family:var(--mono);font-size:.88em;background:var(--bg-soft);
+  border:1px solid var(--line-soft);padding:1px 6px;border-radius:5px;color:var(--fg);
+}
+
+/* ---------- steps ---------- */
+.steps{counter-reset:s;display:grid;gap:22px}
+.step{display:grid;grid-template-columns:36px 1fr;gap:16px;align-items:start}
+.step::before{
+  counter-increment:s;content:counter(s);
+  width:32px;height:32px;border-radius:50%;background:var(--accent-soft);color:var(--accent);
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;
+  border:1px solid color-mix(in srgb,var(--accent) 28%,transparent);
+}
+.step h3{margin-top:3px}
+.step p{color:var(--fg-soft);font-size:14.5px;margin:0 0 12px}
+
+/* ---------- table ---------- */
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg-card)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:520px}
+th,td{padding:13px 16px;text-align:left;border-bottom:1px solid var(--line-soft);vertical-align:top}
+th{
+  font-weight:640;font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--fg-faint);background:var(--bg-soft);
+}
+tr:last-child td{border-bottom:0}
+td code{font-family:var(--mono);font-size:12.5px;color:var(--accent)}
+.yes{color:var(--good);font-weight:600}
+.no{color:var(--bad);font-weight:600}
+
+/* ---------- callouts ---------- */
+.note{
+  display:flex;gap:13px;padding:16px 18px;border-radius:12px;
+  background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 26%,transparent);
+  font-size:14.5px;color:var(--fg);line-height:1.6;
+}
+.note.bad{background:var(--bad-soft);border-color:color-mix(in srgb,var(--bad) 26%,transparent)}
+.note.good{background:var(--good-soft);border-color:color-mix(in srgb,var(--good) 26%,transparent)}
+.note .ni{flex:none;font-size:17px;line-height:1.4}
+.note b{font-weight:650}
+
+/* ---------- checklist ---------- */
+.check{display:grid;gap:9px;grid-template-columns:repeat(2,1fr)}
+@media(max-width:820px){.check{grid-template-columns:1fr}}
+.check div{
+  display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--fg-soft);
+  background:var(--bg-card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+}
+.check .box{
+  flex:none;width:17px;height:17px;border-radius:5px;border:1.5px solid var(--line);
+  margin-top:3px;
+}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--line);padding:40px 0 56px;color:var(--fg-faint);font-size:14px}
+.foot-in{display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between}
+.foot-links{display:flex;gap:18px;flex-wrap:wrap}
+.foot-links a{color:var(--fg-soft)}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top"><span class="dot"></span>s3-l4-proxy</a>
+    <nav class="nav-links">
+      <a href="#architecture">Architecture</a>
+      <a href="#start">Quick start</a>
+      <a href="#config" class="hide-sm">Config</a>
+      <a href="#security">Security</a>
+      <a href="#docs" class="hide-sm">Docs</a>
+      <button class="icon-btn" id="theme" aria-label="Toggle color theme" title="Toggle theme">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+      <a class="nav-gh" href="https://github.com/scott987-cmd/s3-l4-proxy">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+<div class="hero">
+  <div class="wrap hero-in">
+    <div class="eyebrow">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+      Verified in production
+    </div>
+    <h1>A proxy that <span class="grad">refuses to look</span> at your data.</h1>
+    <p class="lede">
+      Layer-4 TCP 443 passthrough from a load balancer to <b>S3-compatible object storage on a private endpoint</b>.
+      TLS is never terminated, the request is never rewritten, and no storage credential ever touches the proxy —
+      so encryption and signature bytes stay intact from client to bucket.
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="#start">
+        Deploy in three commands
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/scott987-cmd/s3-l4-proxy">View source</a>
+    </div>
+    <div class="pills">
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>No TLS termination</span>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>No credentials on the proxy</span>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>Stateless, vendor-neutral</span>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>Backup and auto-rollback</span>
+    </div>
+  </div>
+</div>
+
+<section id="architecture">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">Architecture</div>
+      <h2>Four hops, zero interpretation</h2>
+      <p>Every box on this path moves bytes without understanding them. The only components that know what an S3 request means are the two ends.</p>
+    </div>
+
+    <figure class="diagram" style="margin:0">
+      <svg viewBox="0 0 900 300" role="img" aria-label="S3 client connects over public TCP 443 to an L4 CLB, which balances across two ECS hosts running nginx stream, which forward over the customer intranet to the object storage private endpoint. TLS is preserved end to end.">
+        <defs>
+          <marker id="ar" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto">
+            <path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--fg-faint)"/>
+          </marker>
+          <path id="p1" d="M148,150 H250"/>
+          <path id="p2" d="M352,150 C395,150 395,92 440,92"/>
+          <path id="p3" d="M352,150 C395,150 395,208 440,208"/>
+          <path id="p4" d="M574,92 C625,92 640,150 690,150"/>
+          <path id="p5" d="M574,208 C625,208 640,150 690,150"/>
+        </defs>
+
+        <!-- end-to-end TLS band -->
+        <path class="dg-tls" d="M78,50 H795"/>
+        <path class="dg-tls" d="M78,50 V78"/>
+        <path class="dg-tls" d="M795,50 V115"/>
+        <text class="dg-tls-label" x="436" y="42" text-anchor="middle">end-to-end TLS + signature preserved — no hop in between can read or alter it</text>
+
+        <!-- edges -->
+        <use href="#p1" class="dg-line" marker-end="url(#ar)"/>
+        <use href="#p2" class="dg-line" marker-end="url(#ar)"/>
+        <use href="#p3" class="dg-line" marker-end="url(#ar)"/>
+        <use href="#p4" class="dg-line" marker-end="url(#ar)"/>
+        <use href="#p5" class="dg-line" marker-end="url(#ar)"/>
+
+        <circle class="dot-anim" r="3.5"><animateMotion dur="3.2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" path="M148,150 H250 C295,150 295,92 440,92 C625,92 640,150 690,150"/></circle>
+        <circle class="dot-anim" r="3.5" opacity=".6"><animateMotion dur="3.2s" begin="1.6s" repeatCount="indefinite" path="M148,150 H250 C295,150 295,208 440,208 C625,208 640,150 690,150"/></circle>
+
+        <text class="dg-edge" x="199" y="140" text-anchor="middle">public TCP 443</text>
+        <text class="dg-edge" x="640" y="118" text-anchor="middle">intranet TCP 443</text>
+
+        <!-- client -->
+        <rect class="dg-box-accent" x="18" y="118" width="130" height="64" rx="11"/>
+        <text class="dg-label" x="83" y="145" text-anchor="middle">S3 client</text>
+        <text class="dg-sub" x="83" y="163" text-anchor="middle">TLS + SigV4</text>
+
+        <!-- clb -->
+        <rect class="dg-box" x="250" y="112" width="102" height="76" rx="11"/>
+        <text class="dg-label" x="301" y="139" text-anchor="middle">L4 CLB</text>
+        <text class="dg-sub" x="301" y="156" text-anchor="middle">TCP passthrough</text>
+        <text class="dg-sub" x="301" y="171" text-anchor="middle">ACL allowlist</text>
+
+        <!-- ecs a -->
+        <rect class="dg-box" x="440" y="62" width="134" height="60" rx="11"/>
+        <text class="dg-label" x="507" y="87" text-anchor="middle">ECS-A</text>
+        <text class="dg-sub" x="507" y="104" text-anchor="middle">nginx stream :443</text>
+
+        <!-- ecs b -->
+        <rect class="dg-box" x="440" y="178" width="134" height="60" rx="11"/>
+        <text class="dg-label" x="507" y="203" text-anchor="middle">ECS-B</text>
+        <text class="dg-sub" x="507" y="220" text-anchor="middle">nginx stream :443</text>
+
+        <!-- storage -->
+        <rect class="dg-box-accent" x="690" y="115" width="192" height="70" rx="11"/>
+        <text class="dg-label" x="786" y="142" text-anchor="middle">S3-compatible storage</text>
+        <text class="dg-sub" x="786" y="160" text-anchor="middle">private endpoint :443</text>
+        <text class="dg-sub" x="786" y="175" text-anchor="middle">bucket policy + least privilege</text>
+
+        <!-- footnote row -->
+        <text class="dg-sub" x="301" y="262" text-anchor="middle">no TLS termination</text>
+        <text class="dg-sub" x="507" y="262" text-anchor="middle">no certificates · no keys · stateless</text>
+        <text class="dg-sub" x="786" y="262" text-anchor="middle">sees the proxy's source IP</text>
+      </svg>
+      <figcaption>
+        The load balancer runs a <strong>TCP</strong> listener, not an HTTP one. nginx uses a fixed <code class="inl">upstream</code> block rather than a variable <code class="inl">proxy_pass</code> — the variable form puts nginx on the runtime resolver path and produced connection resets at roughly 5-second intervals. A systemd timer reloads nginx every 5 minutes so the fixed upstream still tracks backend DNS.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="why">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">Trade-off</div>
+      <h2>Choose L4 for a transparent path, L7 to rewrite semantics</h2>
+      <p>This is not a gateway with fewer features. It is a different layer, and the distinction decides whether it fits.</p>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Requirement</th><th>L4 TCP passthrough</th><th>L7 gateway</th></tr></thead>
+        <tbody>
+          <tr><td>TLS and signature passed through untouched</td><td class="yes">✓ recommended</td><td>needs strict signature preservation</td></tr>
+          <tr><td>Virtual AK/SK, delegated or re-signing</td><td class="no">✗</td><td class="yes">✓</td></tr>
+          <tr><td>Host / path rewrite, addressing-style conversion</td><td class="no">✗</td><td class="yes">✓</td></tr>
+          <tr><td>Object-level authz, rate limiting, audit</td><td class="no">✗ HTTP is opaque</td><td class="yes">✓</td></tr>
+          <tr><td>WAF header / body inspection</td><td class="no">✗</td><td class="yes">✓</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note bad" style="margin-top:18px">
+      <span class="ni">✗</span>
+      <div><b>Do not try to approximate L7 controls with TCP rules.</b> If you need object-level audit, per-tenant authorization, or credential translation, this is the wrong layer — and no amount of proxy configuration changes that.</div>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">Quick start</div>
+      <h2>Deploy, verify, accept</h2>
+      <p>Every script is idempotent and backs up the system state before writing anything. A failed <code class="inl">nginx -t</code> rolls the whole run back automatically.</p>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div>
+          <h3>Configure</h3>
+          <p>Copy the template and fill in your endpoints. Real credentials never go in this file.</p>
+          <div class="code">
+            <div class="code-head"><span>proxy node · shell</span><button class="copy">Copy</button></div>
+<pre><span class="c"># on the ECS proxy node</span>
+git clone https://github.com/scott987-cmd/s3-l4-proxy.git
+<span class="k">cd</span> s3-l4-proxy
+cp config.example.env config.env
+
+<span class="c"># edit: S3_BACKEND_HOST, S3_CLIENT_HOST, S3_REGION, LISTEN_PORT, CLB_IP</span></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div>
+          <h3>Install</h3>
+          <p>Installs nginx and the stream module if missing, renders the config, applies the runtime baseline, then verifies itself.</p>
+          <div class="code">
+            <div class="code-head"><span>proxy node · shell</span><button class="copy">Copy</button></div>
+<pre>sudo bash scripts/install_l4_proxy.sh CONFIG=config.env
+bash scripts/verify_l4_proxy.sh -c config.env
+
+<span class="c"># exit 0 = all pass · 1 = warnings · 2 = failures</span></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div>
+          <h3>Accept</h3>
+          <p>A real PUT / GET / MD5 round trip through the load balancer. Credentials come from the process environment and are never written to disk.</p>
+          <div class="code">
+            <div class="code-head"><span>client machine · shell</span><button class="copy">Copy</button></div>
+<pre>S3_ACCESS_KEY=<span class="s">...</span> S3_SECRET_KEY=<span class="s">...</span> \
+  bash scripts/acceptance_l4_proxy.sh CONFIG=config.env RUN_SPEED=1</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note good" style="margin-top:26px">
+      <span class="ni">✓</span>
+      <div><b>Reference result.</b> Deployed from the release archive onto a freshly reinstalled CentOS Stream 9 host (nginx 1.20.1, dynamic stream module): inspection <code class="inl">PASS=20 WARN=1 FAIL=0</code> — the single warning is the egress lock being off by security default. Through a public CLB against Volcengine TOS: 1 MB PUT 200, GET 200, MD5 match; 100 MB / 500 MB single-connection transfers reached roughly 78–98 MB/s, close to the test instance NIC ceiling.</div>
+    </div>
+  </div>
+</section>
+
+<section id="ops">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">Day two</div>
+      <h2>One entrypoint for everything after deploy</h2>
+      <p>Wire <code class="inl">health</code> into monitoring — it exits 0 / 1 / 2 for pass / warnings / failures.</p>
+    </div>
+    <div class="code">
+      <div class="code-head"><span>ops_l4_proxy.sh</span><button class="copy">Copy</button></div>
+<pre>bash scripts/ops_l4_proxy.sh status   CONFIG=config.env  <span class="c"># service, listener, upstream, config</span>
+bash scripts/ops_l4_proxy.sh health   CONFIG=config.env  <span class="c"># full verification</span>
+bash scripts/ops_l4_proxy.sh conns    CONFIG=config.env  <span class="c"># connection states and peers</span>
+bash scripts/ops_l4_proxy.sh upstream CONFIG=config.env  <span class="c"># DNS + timed HTTPS probe</span>
+sudo bash scripts/ops_l4_proxy.sh reload CONFIG=config.env
+
+<span class="c"># emergency: remove only the dedicated S3_L4_EGRESS chain</span>
+sudo bash scripts/ops_l4_proxy.sh unlock-egress CONFIG=config.env</pre>
+    </div>
+    <div class="grid g3" style="margin-top:20px">
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div>
+        <h3>Connection-level logs</h3>
+        <p>Source, duration, bytes, status, upstream and connect time — rotated daily, 15 generations. Never bucket or object key: those bytes are encrypted.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/><path d="M21 3v6h-6"/></svg></div>
+        <h3>Backup and rollback</h3>
+        <p>nginx config, stream config, systemd limits, logrotate, sysctl and iptables are captured before any write and restored automatically on failure.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></div>
+        <h3>Stateless scaling</h3>
+        <p>No session state to migrate. Install the same config on a new host, add it to the backend group, wait for the health check.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="config">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">Configuration</div>
+      <h2>The settings that matter first</h2>
+      <p>Everything is an environment variable. Defaults come first, then <code class="inl">config.env</code>, then command-line <code class="inl">KEY=VALUE</code> arguments. Full table in the <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/CONFIGURATION.md">configuration reference</a>.</p>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Variable</th><th>Default</th><th>What it controls</th></tr></thead>
+        <tbody>
+          <tr><td><code>S3_BACKEND_HOST</code></td><td><code>tos-s3-&lt;region&gt;.ivolces.com</code></td><td>The endpoint the ECS host connects to. Use the private endpoint in production. The default is Volcengine TOS — set it explicitly for any other vendor.</td></tr>
+          <tr><td><code>S3_CLIENT_HOST</code></td><td><em>empty</em></td><td>Hostname the client uses for TLS SNI and signing. Must be covered by the backend certificate.</td></tr>
+          <tr><td><code>LISTEN_PORT</code></td><td><code>443</code></td><td>nginx stream listener. Must match the CLB backend port and its health check.</td></tr>
+          <tr><td><code>MAIN_MODE</code></td><td><code>replace</code></td><td><code>replace</code> installs a stream-only main config on a dedicated host. Use <code>auto</code> with <code>DEDICATED_PROXY_HOST=0</code> when co-locating with an nginx HTTP service.</td></tr>
+          <tr><td><code>ENABLE_PROXY_PROTOCOL</code></td><td><code>0</code></td><td>Turn on only if the CLB listener also sends PROXY protocol. A one-sided setting breaks every plain TLS client.</td></tr>
+          <tr><td><code>EGRESS_LOCK</code></td><td><code>0</code></td><td>Restricts outbound traffic to DNS, SSH, <code>EXTRA_ALLOW</code> and the resolved backend, via a dedicated chain that never flushes existing rules.</td></tr>
+          <tr><td><code>DNS_RELOAD_INTERVAL</code></td><td><code>5min</code></td><td>How often nginx is gracefully reloaded so the fixed upstream picks up backend DNS changes.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="security">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">Security</div>
+      <h2>What a compromised proxy would actually yield</h2>
+      <p>The design goal is to make that answer boring. Network reachability is the only real asset on the host.</p>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h3>Object data — ciphertext only</h3>
+        <p>TLS is never terminated on the path. Encrypt with your own KMS before data leaves the client side and the proxy handles nothing but opaque bytes.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7a4 4 0 1 0-4 4h.5L14 13.5V16h2.5l1-1v-2l1.5-1.5V9h-3z"/><path d="m3 21 8-8"/></svg></div>
+        <h3>Credentials — none present</h3>
+        <p>No AK/SK, session token, signing key, certificate or private key is stored or read anywhere on the proxy path.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path d="m3 3 18 18"/></svg></div>
+        <h3>Metadata — not visible</h3>
+        <p>Bucket, object key, access key and action are inside the encrypted stream. Object-level audit must come from the client or the storage's own audit log.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <h3>Reachability — the real asset</h3>
+        <p>Narrow it: CLB ACL to fixed client egress, security group to the CLB only, optional egress lock, and a bucket policy pinned to the proxy's real source address.</p>
+      </div>
+    </div>
+    <div class="note" style="margin-top:20px">
+      <span class="ni">!</span>
+      <div><b>Get the source address from the audit log, not from a guess.</b> Under L4 the storage sees the address the ECS host uses to reach the private endpoint — not the original client's egress IP, and not necessarily the ECS public IP. Guessing either fails open or locks out production.</div>
+    </div>
+  </div>
+</section>
+
+<section id="checklist">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">Go-live</div>
+      <h2>Production checklist</h2>
+      <p>Ten of these are checked automatically by <code class="inl">verify_l4_proxy.sh</code>. The rest are decisions only you can make.</p>
+    </div>
+    <div class="check">
+      <div><span class="box"></span>Two or more ECS nodes across availability zones behind one L4 CLB</div>
+      <div><span class="box"></span>CLB TCP health check targets the same port as business traffic</div>
+      <div><span class="box"></span>CLB ACL and security group allow only the client egress and the CLB</div>
+      <div><span class="box"></span>nginx <code class="inl">stream</code> module loaded and <code class="inl">nginx -t</code> passes</div>
+      <div><span class="box"></span>Active config uses <code class="inl">proxy_pass s3_backend</code>, never <code class="inl">proxy_pass $…</code></div>
+      <div><span class="box"></span><code class="inl">worker_rlimit_nofile</code> and systemd <code class="inl">LimitNOFILE</code> at least 65535</div>
+      <div><span class="box"></span>Stream log collected and rotated</div>
+      <div><span class="box"></span>DNS reload timer enabled</div>
+      <div><span class="box"></span>PROXY protocol setting matches the CLB listener on both sides</div>
+      <div><span class="box"></span>Egress lock enabled only after validating every dependency</div>
+      <div><span class="box"></span>Bucket policy principal, resources and source IP saved and verified</div>
+      <div><span class="box"></span>Real PUT / GET / MD5 through the CLB passes before cutover</div>
+    </div>
+  </div>
+</section>
+
+<section id="docs">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">Documentation</div>
+      <h2>Go deeper</h2>
+    </div>
+    <div class="grid g3">
+      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/CONFIGURATION.md">
+        <h3 class="title" style="color:var(--fg)">Configuration reference →</h3>
+        <p>Every variable, its default, precedence rules, legacy aliases, and worked examples for TOS, AWS and co-located hosts.</p>
+      </a>
+      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/OPERATIONS.md">
+        <h3 class="title" style="color:var(--fg)">Operations runbook →</h3>
+        <p>Daily checks, alert thresholds, adding and draining nodes, endpoint changes, capacity, change management, emergencies.</p>
+      </a>
+      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/TROUBLESHOOTING.md">
+        <h3 class="title" style="color:var(--fg)">Troubleshooting →</h3>
+        <p>The 5-second reset, PROXY protocol mismatch, certificate/SNI failures, egress lockout, 403s, and manual rollback.</p>
+      </a>
+      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/SECURITY.md">
+        <h3 class="title" style="color:var(--fg)">Security policy →</h3>
+        <p>Threat model, per-layer controls, known operational risks, secret hygiene, and how to report a vulnerability.</p>
+      </a>
+      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/DESIGN.zh-CN.md">
+        <h3 class="title" style="color:var(--fg)">完整生产方案（中文）→</h3>
+        <p>安全边界、TOS 桶策略示例、厂商兼容性、真实验证结果与生产准入清单。</p>
+      </a>
+      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/README.zh-CN.md">
+        <h3 class="title" style="color:var(--fg)">中文说明文档 →</h3>
+        <p>与英文 README 对照的完整中文版：快速开始、一键运维、安全模型与已知限制。</p>
+      </a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap foot-in">
+    <div>Apache-2.0 licensed. Compatibility is TCP/TLS data-plane compatibility — always validate go-live with your real SDK.</div>
+    <div class="foot-links">
+      <a href="https://github.com/scott987-cmd/s3-l4-proxy">GitHub</a>
+      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/CONTRIBUTING.md">Contributing</a>
+      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/LICENSE">License</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var root=document.documentElement, btn=document.getElementById('theme');
+  var saved=null;
+  try{saved=localStorage.getItem('theme')}catch(e){}
+  if(saved){root.setAttribute('data-theme',saved)}
+  btn.addEventListener('click',function(){
+    var cur=root.getAttribute('data-theme');
+    var isDark = cur==='dark' || (cur==='auto' && matchMedia('(prefers-color-scheme:dark)').matches);
+    var next=isDark?'light':'dark';
+    root.setAttribute('data-theme',next);
+    try{localStorage.setItem('theme',next)}catch(e){}
+  });
+
+  document.querySelectorAll('.copy').forEach(function(b){
+    b.addEventListener('click',function(){
+      var pre=b.closest('.code').querySelector('pre');
+      var text=pre.innerText.split('\n').filter(function(l){return l.trim().indexOf('#')!==0}).join('\n').trim();
+      var done=function(){b.textContent='Copied';b.classList.add('done');
+        setTimeout(function(){b.textContent='Copy';b.classList.remove('done')},1600)};
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(done,function(){})
+      }else{
+        var t=document.createElement('textarea');t.value=text;document.body.appendChild(t);
+        t.select();try{document.execCommand('copy');done()}catch(e){}document.body.removeChild(t);
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>

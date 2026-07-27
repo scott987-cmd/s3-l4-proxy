@@ -27,11 +27,14 @@ if [ "${1:-}" = "--help" ]; then
   exit 0
 fi
 
+CLI_BACKEND_HOST=""
+CLI_LISTEN_PORT=""
+
 while getopts "c:e:p:h" opt; do
   case "$opt" in
     c) CONF="$OPTARG" ;;
-    e) S3_BACKEND_HOST="$OPTARG" ;;
-    p) LISTEN_PORT="$OPTARG" ;;
+    e) CLI_BACKEND_HOST="$OPTARG"; S3_BACKEND_HOST="$OPTARG" ;;
+    p) CLI_LISTEN_PORT="$OPTARG"; LISTEN_PORT="$OPTARG" ;;
     h) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
@@ -48,6 +51,9 @@ if [ -n "$CONF" ] && [ -f "$CONF" ]; then
   LISTEN_PORT="${LISTEN_PORT:-443}"
   CONF_PATH="${CONF_PATH:-/etc/nginx/stream.d/s3-proxy.conf}"
   NGINX_MAIN="${NGINX_MAIN:-/etc/nginx/nginx.conf}"
+  # Explicit command-line flags win over values from the config file.
+  [ -n "$CLI_BACKEND_HOST" ] && S3_BACKEND_HOST="$CLI_BACKEND_HOST"
+  [ -n "$CLI_LISTEN_PORT" ] && LISTEN_PORT="$CLI_LISTEN_PORT"
 fi
 
 PASS=0

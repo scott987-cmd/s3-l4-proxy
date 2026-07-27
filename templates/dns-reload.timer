@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic S3 L4 proxy backend DNS refresh
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=__DNS_RELOAD_INTERVAL__
+RandomizedDelaySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

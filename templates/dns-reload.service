@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh S3 L4 proxy backend DNS by reloading nginx
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nginx -t
+ExecStart=/bin/systemctl reload nginx

@@ -1,0 +1,24 @@
+# Real deployment config — contains customer endpoints / CLB addresses. Never commit.
+config.env
+*.env
+!config.example.env
+
+# Credentials of any kind
+*.pem
+*.key
+*.crt
+*.p12
+.envrc
+secrets/
+
+# Build / release artifacts
+*.tgz
+*.tar.gz
+dist/
+build/
+
+# Runtime output
+*.log
+logs/
+backups/
+.DS_Store

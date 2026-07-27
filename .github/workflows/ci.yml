@@ -48,7 +48,10 @@ jobs:
       - name: Render the stream template
         run: |
           mkdir -p rendered
-          sed "s|__S3_BACKEND_HOST__|s3-backend.internal.example.com|g; \
+          # nginx resolves a fixed upstream at config-test time, so the test
+          # host must be resolvable on the runner. That resolution requirement
+          # is the property this toolkit deliberately relies on.
+          sed "s|__S3_BACKEND_HOST__|127.0.0.1|g; \
                s|__S3_BACKEND_PORT__|443|g; \
                s|__LISTEN_PORT__|8443|g; \
                s|__LISTEN_OPTIONS__||g; \

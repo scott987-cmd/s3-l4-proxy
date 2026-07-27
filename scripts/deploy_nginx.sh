@@ -34,6 +34,8 @@ load_config() {
   for argument in "$@"; do
     case "$argument" in
       -h|--help) usage; exit 0 ;;
+      # $argument is a literal KEY=VALUE pair here, which export accepts directly.
+      # shellcheck disable=SC2163
       *=*) export "$argument" ;;
       *) die "unknown argument: $argument" ;;
     esac

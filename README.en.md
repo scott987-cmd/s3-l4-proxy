@@ -32,6 +32,8 @@ Because the data path is raw TCP, it is vendor-neutral. The tested implementatio
 
 **Cost — fully open source, no licence fees.** The data path is nginx plus `ngx_stream_module` from the distribution's own repositories: no closed-source component, no licence, no metered middleware, no vendor lock-in. The whole footprint is two ECS hosts and one L4 load balancer, and since nothing is decrypted or parsed the CPU goes to network I/O, so ordinary instance sizes are enough.
 
+**Compatibility — nothing to adapt per vendor.** Differences in signing algorithm variants, path-style versus virtual-hosted addressing, proprietary extension headers, non-standard error bodies and vendor-specific authentication all pass through untouched. Anything that must *understand* the S3 protocol has to be adapted to each vendor's dialect, and smaller vendors and self-hosted storage (MinIO, Ceph RGW) differ most in exactly those places. This design parses none of it, so "that vendor is not supported yet" does not arise: whether it works depends only on whether the client and the storage agree with each other.
+
 ## Quick start
 
 On the ECS proxy node:
@@ -150,7 +152,9 @@ Earlier generations of this proxy used a variable stream upstream (`proxy_pass $
 
 ## Vendor compatibility
 
-Compatibility here is **TCP/TLS data-plane** compatibility. It does not imply that different vendors' signing protocols interoperate. Always validate go-live with the real client SDK/CLI: PUT, GET, HEAD, multipart, and integrity checks.
+The proxy moves TCP bytes and passes vendor differences through untouched, so network-layer compatibility risk with long-tail object storage is as low as it gets — "that vendor is not supported yet" does not arise.
+
+What this compatibility is, precisely: **TCP/TLS data-plane** compatibility. Whether a combination works depends on the client and the storage agreeing with each other — the certificate covering the client host, the signing protocol being accepted — and the proxy neither participates in that nor can compensate for it. Always validate go-live with the real client SDK/CLI: PUT, GET, HEAD, multipart, and integrity checks.
 
 | Object storage | Status | What to verify |
 | --- | --- | --- |

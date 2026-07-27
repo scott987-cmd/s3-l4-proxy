@@ -411,6 +411,11 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
         <h3>成本：全开源，无授权费用</h3>
         <p>数据面只依赖 <b>nginx + ngx_stream_module</b>，来自发行版官方仓库，无闭源组件、无 license 费用、无按量计费的中间件、无厂商锁定。全部资源开销就是两台 ECS 与一个公网负载均衡；不解密不解析，CPU 花在网络 I/O 上，普通规格实例即可承载。</p>
       </div>
+      <div class="card" style="grid-column:1/-1">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M9 12h6"/></svg></div>
+        <h3>兼容性：不解析协议，就没有「适配某个厂商」这件事</h3>
+        <p>厂商在签名算法变体、path-style 与 virtual-hosted 寻址、私有扩展头、非标准错误响应体、自有鉴权机制上的差异，全部原样透传。任何需要<b>理解</b> S3 协议的中间件都必须逐个厂商适配这些方言，而中小厂商与自建存储（MinIO、Ceph RGW）恰恰在这些点上差异最大——本方案不解析，因此<b>不存在「该厂商尚未适配」的问题</b>。能不能通，只取决于客户端与对象存储两端自己是否谈得拢，与代理无关。</p>
+      </div>
     </div>
 
     <div class="grid g2">
@@ -630,8 +635,13 @@ CONFIG=config.env</code>
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-label">四、厂商兼容性</div>
-      <h2>兼容的是 TCP/TLS 数据面，不是认证协议</h2>
-      <p>数据面通用不代表不同厂商的签名协议天然互通。最终上线必须使用客户真实 SDK/CLI 完成 PUT、GET、HEAD、Multipart 与完整性验证。</p>
+      <h2>不解析协议，所以没有「适配某个厂商」这件事</h2>
+      <p>代理只搬运 TCP 字节，厂商在签名算法、寻址模式、自定义头、错误格式上的差异全部原样透传——这正是它对长尾对象存储兼容性最好的原因。</p>
+    </div>
+
+    <div class="note good" style="margin-bottom:20px">
+      <span class="ni">✓</span>
+      <div><b>兼容性风险在网络层被降到最低。</b>任何需要<b>理解</b> S3 协议的中间件，都必须逐个适配各厂商的方言：SigV4 的变体、path-style 与 virtual-hosted 寻址、厂商私有的扩展头、非标准的错误响应体、以及各家自有的鉴权机制——中小厂商与自建存储（MinIO、Ceph RGW）在这些点上差异最大，也最容易踩坑。本方案不解析这些内容，因此<b>不存在「该厂商尚未适配」的问题</b>：能不能通，只取决于客户端与对象存储两端自己是否谈得拢，与代理无关。</div>
     </div>
     <div class="tw">
       <table>

@@ -1,265 +1,246 @@
 <!doctype html>
-<html lang="en" data-theme="auto">
+<html lang="zh-CN" data-theme="auto">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>s3-l4-proxy — L4 TCP passthrough for S3-compatible storage</title>
-<meta name="description" content="Layer-4 TCP 443 passthrough proxy toolkit for reaching S3-compatible object storage private endpoints. No TLS termination, no credentials on the proxy, vendor-neutral.">
+<title>通用 S3 四层代理（L4 TCP 透传）生产方案</title>
+<meta name="description" content="四层 CLB TCP 443 透传 + nginx stream，将 S3 客户端流量转发到 S3 兼容对象存储私网 endpoint。不终结 TLS、不改请求、不存凭证。架构、安全边界、部署流程与验证结果图解。">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%80%3C/text%3E%3C/svg%3E">
 <style>
 :root{
   --bg:#fbfcfd; --bg-soft:#f2f5f8; --bg-card:#ffffff;
-  --fg:#111a24; --fg-soft:#4a5b6d; --fg-faint:#7b8b9c;
+  --fg:#111a24; --fg-soft:#46586a; --fg-faint:#78889a;
   --line:#e0e7ee; --line-soft:#eef2f6;
   --accent:#0a7d8c; --accent-soft:#e6f4f6; --accent-strong:#065b66;
-  --warn:#a2611a; --warn-soft:#fdf3e4;
-  --bad:#b3372f; --bad-soft:#fdeceb;
-  --good:#1d7a4a; --good-soft:#e8f6ee;
+  --warn:#9a5c12; --warn-soft:#fdf2e2; --warn-line:#e0b070;
+  --bad:#ab3229; --bad-soft:#fdeceb; --bad-line:#e39a93;
+  --good:#1a7044; --good-soft:#e6f5ec; --good-line:#7ec49b;
   --code-bg:#0e1720; --code-fg:#dbe6f0;
   --shadow:0 1px 2px rgba(16,32,48,.05), 0 8px 24px -12px rgba(16,32,48,.18);
   --radius:14px;
-  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
 }
 @media (prefers-color-scheme:dark){
   :root[data-theme="auto"]{
     --bg:#0b1118; --bg-soft:#111a23; --bg-card:#141f2a;
-    --fg:#e8eef5; --fg-soft:#a6b6c6; --fg-faint:#738799;
+    --fg:#e8eef5; --fg-soft:#a8b8c8; --fg-faint:#75899b;
     --line:#22303d; --line-soft:#1a2634;
     --accent:#3fbccd; --accent-soft:#0f2b31; --accent-strong:#7ad6e3;
-    --warn:#d9a05b; --warn-soft:#2b2113;
-    --bad:#e08a82; --bad-soft:#2d1715;
-    --good:#5ec98c; --good-soft:#10281c;
+    --warn:#dda863; --warn-soft:#2b2113; --warn-line:#7a5b28;
+    --bad:#e59289; --bad-soft:#2d1715; --bad-line:#7c3a33;
+    --good:#63cf92; --good-soft:#10281c; --good-line:#2f6a48;
     --code-bg:#080d13; --code-fg:#d3e0ec;
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
   }
 }
 :root[data-theme="dark"]{
   --bg:#0b1118; --bg-soft:#111a23; --bg-card:#141f2a;
-  --fg:#e8eef5; --fg-soft:#a6b6c6; --fg-faint:#738799;
+  --fg:#e8eef5; --fg-soft:#a8b8c8; --fg-faint:#75899b;
   --line:#22303d; --line-soft:#1a2634;
   --accent:#3fbccd; --accent-soft:#0f2b31; --accent-strong:#7ad6e3;
-  --warn:#d9a05b; --warn-soft:#2b2113;
-  --bad:#e08a82; --bad-soft:#2d1715;
-  --good:#5ec98c; --good-soft:#10281c;
+  --warn:#dda863; --warn-soft:#2b2113; --warn-line:#7a5b28;
+  --bad:#e59289; --bad-soft:#2d1715; --bad-line:#7c3a33;
+  --good:#63cf92; --good-soft:#10281c; --good-line:#2f6a48;
   --code-bg:#080d13; --code-fg:#d3e0ec;
   --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
 }
 
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:76px;-webkit-text-size-adjust:100%}
-body{
-  margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
-  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased;
-  overflow-x:hidden;
-}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
+  font-size:16px;line-height:1.7;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
-.wrap{max-width:1060px;margin:0 auto;padding:0 24px}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
 
-/* ---------- nav ---------- */
-header.nav{
-  position:sticky;top:0;z-index:50;
-  background:color-mix(in srgb,var(--bg) 86%,transparent);
-  backdrop-filter:saturate(1.6) blur(12px);
-  border-bottom:1px solid var(--line);
-}
+/* nav */
+header.nav{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 86%,transparent);
+  backdrop-filter:saturate(1.6) blur(12px);border-bottom:1px solid var(--line)}
 .nav-in{display:flex;align-items:center;gap:20px;height:60px}
-.brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:-.02em;color:var(--fg);font-size:15.5px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:650;letter-spacing:-.01em;color:var(--fg);font-size:15.5px}
 .brand:hover{text-decoration:none}
 .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft);flex:none}
-.nav-links{display:flex;gap:22px;margin-left:auto;align-items:center}
+.nav-links{display:flex;gap:20px;margin-left:auto;align-items:center}
 .nav-links a{color:var(--fg-soft);font-size:14px;font-weight:500}
 .nav-links a:hover{color:var(--fg);text-decoration:none}
-.icon-btn{
-  display:inline-flex;align-items:center;justify-content:center;
-  width:34px;height:34px;border-radius:9px;border:1px solid var(--line);
-  background:var(--bg-card);color:var(--fg-soft);cursor:pointer;flex:none;padding:0;
-}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;
+  border-radius:9px;border:1px solid var(--line);background:var(--bg-card);color:var(--fg-soft);cursor:pointer;flex:none;padding:0}
 .icon-btn:hover{color:var(--fg);border-color:var(--fg-faint)}
-.nav-gh{
-  display:inline-flex;align-items:center;gap:7px;font-size:13.5px;font-weight:550;
-  padding:7px 13px;border-radius:9px;border:1px solid var(--line);background:var(--bg-card);color:var(--fg)!important;
-}
+.nav-gh{display:inline-flex;align-items:center;gap:7px;font-size:13.5px;font-weight:550;padding:7px 13px;
+  border-radius:9px;border:1px solid var(--line);background:var(--bg-card);color:var(--fg)!important}
 .nav-gh:hover{border-color:var(--fg-faint);text-decoration:none}
-@media(max-width:860px){.nav-links a.hide-sm{display:none}}
+@media(max-width:960px){.nav-links a.hide-sm{display:none}}
 
-/* ---------- hero ---------- */
-.hero{padding:76px 0 56px;position:relative;overflow:hidden}
-.hero::before{
-  content:"";position:absolute;inset:-40% 20% auto -10%;height:520px;
-  background:radial-gradient(closest-side,var(--accent-soft),transparent 70%);
-  opacity:.85;pointer-events:none;
-}
+/* hero */
+.hero{padding:70px 0 52px;position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:-40% 20% auto -10%;height:520px;
+  background:radial-gradient(closest-side,var(--accent-soft),transparent 70%);opacity:.85;pointer-events:none}
 .hero-in{position:relative}
-.eyebrow{
-  display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;
-  letter-spacing:.06em;text-transform:uppercase;color:var(--accent);
-  background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);
-  padding:5px 12px;border-radius:100px;margin-bottom:22px;
-}
-h1{
-  font-size:clamp(34px,5.4vw,56px);line-height:1.08;letter-spacing:-.035em;
-  margin:0 0 20px;font-weight:700;max-width:16ch;
-}
-h1 .grad{
-  background:linear-gradient(100deg,var(--accent),var(--accent-strong));
-  -webkit-background-clip:text;background-clip:text;color:transparent;
-}
-.lede{font-size:clamp(16.5px,2vw,19px);color:var(--fg-soft);max-width:62ch;margin:0 0 30px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;letter-spacing:.04em;
+  color:var(--accent);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);
+  padding:5px 12px;border-radius:100px;margin-bottom:20px}
+h1{font-size:clamp(28px,4.6vw,46px);line-height:1.18;letter-spacing:-.02em;margin:0 0 20px;font-weight:700;max-width:20ch}
+h1 .grad{background:linear-gradient(100deg,var(--accent),var(--accent-strong));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{font-size:clamp(16px,1.9vw,18.5px);color:var(--fg-soft);max-width:64ch;margin:0 0 28px}
 .lede b{color:var(--fg);font-weight:600}
-.cta{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:38px}
-.btn{
-  display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:11px;
-  font-size:14.5px;font-weight:600;border:1px solid transparent;cursor:pointer;
-}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:34px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:11px;
+  font-size:14.5px;font-weight:600;border:1px solid transparent;cursor:pointer}
 .btn:hover{text-decoration:none}
 .btn-primary{background:var(--accent);color:#fff!important;box-shadow:var(--shadow)}
 .btn-primary:hover{background:var(--accent-strong)}
 .btn-ghost{background:var(--bg-card);border-color:var(--line);color:var(--fg)!important}
 .btn-ghost:hover{border-color:var(--fg-faint)}
-
 .pills{display:flex;flex-wrap:wrap;gap:10px}
-.pill{
-  display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:100px;
-  background:var(--bg-card);border:1px solid var(--line);font-size:13.5px;color:var(--fg-soft);
-  font-weight:500;
-}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:100px;background:var(--bg-card);
+  border:1px solid var(--line);font-size:13.5px;color:var(--fg-soft);font-weight:500}
 .pill svg{flex:none;color:var(--good)}
 
-/* ---------- sections ---------- */
-section{padding:64px 0;border-top:1px solid var(--line-soft)}
-section:first-of-type{border-top:0}
-.sec-head{margin-bottom:34px;max-width:64ch}
-.sec-label{
-  font-size:12.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--accent);margin-bottom:10px;
-}
-h2{font-size:clamp(25px,3.2vw,33px);line-height:1.2;letter-spacing:-.025em;margin:0 0 12px;font-weight:680}
-h3{font-size:18px;letter-spacing:-.015em;margin:0 0 8px;font-weight:640}
-.sec-head p{color:var(--fg-soft);margin:0;font-size:16.5px}
+/* sections */
+section{padding:60px 0;border-top:1px solid var(--line-soft)}
+.sec-head{margin-bottom:32px;max-width:66ch}
+.sec-label{font-size:12.5px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+h2{font-size:clamp(23px,3vw,31px);line-height:1.25;letter-spacing:-.02em;margin:0 0 12px;font-weight:680}
+h3{font-size:17px;letter-spacing:-.01em;margin:0 0 8px;font-weight:640}
+.sec-head p{color:var(--fg-soft);margin:0;font-size:16px}
 
-/* ---------- diagram ---------- */
-.diagram{
-  background:var(--bg-card);border:1px solid var(--line);border-radius:var(--radius);
-  padding:26px 20px 18px;box-shadow:var(--shadow);overflow-x:auto;
-}
-.diagram svg{display:block;width:100%;min-width:640px;height:auto}
+/* figure shell */
+.fig{background:var(--bg-card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:24px 20px 16px;box-shadow:var(--shadow);overflow-x:auto}
+.fig svg.d{display:block;width:100%;height:auto}
+.fig figcaption{margin:16px 4px 0;color:var(--fg-faint);font-size:13.5px;line-height:1.65;
+  border-top:1px solid var(--line-soft);padding-top:14px}
 .dg-label{fill:var(--fg);font-family:var(--sans);font-size:13px;font-weight:600}
 .dg-sub{fill:var(--fg-faint);font-family:var(--mono);font-size:10.5px}
-.dg-edge{fill:var(--fg-faint);font-family:var(--sans);font-size:11px;font-weight:500}
+.dg-cn{fill:var(--fg-faint);font-family:var(--sans);font-size:11px}
+.dg-edge{fill:var(--fg-faint);font-family:var(--sans);font-size:11.5px;font-weight:500}
 .dg-box{fill:var(--bg-soft);stroke:var(--line);stroke-width:1.5}
 .dg-box-accent{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
+.dg-box-good{fill:var(--good-soft);stroke:var(--good-line);stroke-width:1.5}
+.dg-box-bad{fill:var(--bad-soft);stroke:var(--bad-line);stroke-width:1.5}
 .dg-line{stroke:var(--line);stroke-width:2;fill:none}
-.dg-flow{stroke:var(--accent);stroke-width:2;fill:none;opacity:.55}
 .dg-tls{stroke:var(--good);stroke-width:1.5;fill:none;stroke-dasharray:5 4;opacity:.75}
 .dg-tls-label{fill:var(--good);font-family:var(--sans);font-size:11.5px;font-weight:600}
 .dot-anim{fill:var(--accent)}
 @media(prefers-reduced-motion:reduce){.dot-anim{display:none}}
-.diagram figcaption{
-  margin:16px 4px 0;color:var(--fg-faint);font-size:13.5px;line-height:1.6;
-  border-top:1px solid var(--line-soft);padding-top:14px;
-}
 
-/* ---------- cards ---------- */
+/* layered security */
+.layers{display:grid;gap:10px}
+.layer{display:grid;grid-template-columns:44px 128px 1fr;gap:16px;align-items:center;
+  background:var(--bg-card);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:12px;padding:14px 18px}
+.layer:nth-child(1){border-left-color:#0a7d8c}
+.layer:nth-child(2){border-left-color:#1a7044}
+.layer:nth-child(3){border-left-color:#9a5c12}
+.layer:nth-child(4){border-left-color:#ab3229}
+.layer:nth-child(5){border-left-color:#4a3fa0}
+.layer .li{width:38px;height:38px;border-radius:10px;background:var(--bg-soft);color:var(--fg-soft);
+  display:flex;align-items:center;justify-content:center;flex:none}
+.layer .ln{font-weight:640;font-size:15px}
+.layer .lc{font-size:12.5px;color:var(--fg-faint);font-family:var(--mono)}
+.layer .lr{font-size:14.5px;color:var(--fg-soft);line-height:1.6}
+@media(max-width:760px){.layer{grid-template-columns:38px 1fr;gap:12px}
+  .layer .lr{grid-column:1/-1}}
+
+/* flow steps */
+.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:stretch}
+@media(max-width:900px){.flow{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.flow{grid-template-columns:1fr}}
+.fstep{position:relative;background:var(--bg-card);border:1px solid var(--line);border-radius:12px;padding:18px 16px}
+.fstep::after{content:"";position:absolute;right:-13px;top:50%;width:14px;height:2px;background:var(--line);z-index:1}
+.fstep:last-child::after{display:none}
+@media(max-width:900px){.fstep::after{display:none}}
+.fstep .fi{width:36px;height:36px;border-radius:10px;background:var(--accent-soft);color:var(--accent);
+  display:flex;align-items:center;justify-content:center;margin-bottom:12px}
+.fstep .fn{font-size:11.5px;font-weight:650;letter-spacing:.06em;color:var(--accent);margin-bottom:4px}
+.fstep h3{margin-bottom:6px}
+.fstep p{margin:0 0 10px;font-size:13.8px;color:var(--fg-soft);line-height:1.6}
+.fstep>code{display:block;font-family:var(--mono);font-size:11.5px;background:var(--bg-soft);
+  border:1px solid var(--line-soft);border-radius:7px;padding:8px 10px;color:var(--fg-soft);
+  overflow-x:auto;white-space:pre;line-height:1.55}
+
+/* cards */
 .grid{display:grid;gap:16px}
 .g3{grid-template-columns:repeat(3,1fr)}
 .g2{grid-template-columns:repeat(2,1fr)}
-@media(max-width:820px){.g3,.g2{grid-template-columns:1fr}}
-.card{
-  background:var(--bg-card);border:1px solid var(--line);border-radius:var(--radius);
-  padding:22px;
-}
+@media(max-width:840px){.g3,.g2{grid-template-columns:1fr}}
+.card{background:var(--bg-card);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
 .card.hoverable{transition:border-color .16s,transform .16s,box-shadow .16s}
 .card.hoverable:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow)}
-.card p{margin:0;color:var(--fg-soft);font-size:14.5px;line-height:1.62}
-.card .ico{
-  width:36px;height:36px;border-radius:10px;background:var(--accent-soft);color:var(--accent);
-  display:flex;align-items:center;justify-content:center;margin-bottom:14px;
-}
-.card a.title{color:var(--fg);display:flex;align-items:center;gap:6px}
-.card a.title:hover{color:var(--accent);text-decoration:none}
+.card p{margin:0;color:var(--fg-soft);font-size:14.5px;line-height:1.65}
+.card .ico{width:36px;height:36px;border-radius:10px;background:var(--accent-soft);color:var(--accent);
+  display:flex;align-items:center;justify-content:center;margin-bottom:13px}
+a.card h3{color:var(--accent)}
 
-/* ---------- code ---------- */
-.code{
-  position:relative;background:var(--code-bg);border-radius:12px;
-  border:1px solid color-mix(in srgb,var(--code-bg) 70%,var(--line));
-  margin:0 0 14px;overflow:hidden;
-}
-.code-head{
-  display:flex;align-items:center;gap:10px;padding:9px 14px;
-  border-bottom:1px solid rgba(255,255,255,.07);
-}
-.code-head span{font-family:var(--mono);font-size:11.5px;color:#8ba1b6;letter-spacing:.02em}
-.copy{
-  margin-left:auto;background:rgba(255,255,255,.07);border:0;color:#c3d3e2;
-  font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:6px;cursor:pointer;
-  font-family:var(--sans);
-}
-.copy:hover{background:rgba(255,255,255,.14);color:#fff}
-.copy.done{background:var(--good);color:#fff}
-.code pre{
-  margin:0;padding:15px 16px;overflow-x:auto;
-  font-family:var(--mono);font-size:13px;line-height:1.72;color:var(--code-fg);
-}
-.code pre .c{color:#6f8497}
-.code pre .k{color:#7ad6e3}
-.code pre .s{color:#b5d99c}
-code.inl{
-  font-family:var(--mono);font-size:.88em;background:var(--bg-soft);
-  border:1px solid var(--line-soft);padding:1px 6px;border-radius:5px;color:var(--fg);
-}
+/* yes/no lists */
+.ynlist{margin:0;padding:0;list-style:none;display:grid;gap:11px}
+.ynlist li{display:flex;gap:11px;font-size:14.6px;color:var(--fg-soft);line-height:1.62}
+.ynlist .m{flex:none;width:20px;height:20px;border-radius:6px;display:flex;align-items:center;
+  justify-content:center;margin-top:2px;font-size:12px;font-weight:700}
+.m.ok{background:var(--good-soft);color:var(--good);border:1px solid var(--good-line)}
+.m.no{background:var(--bad-soft);color:var(--bad);border:1px solid var(--bad-line)}
 
-/* ---------- steps ---------- */
-.steps{counter-reset:s;display:grid;gap:22px}
-.step{display:grid;grid-template-columns:36px 1fr;gap:16px;align-items:start}
-.step::before{
-  counter-increment:s;content:counter(s);
-  width:32px;height:32px;border-radius:50%;background:var(--accent-soft);color:var(--accent);
-  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;
-  border:1px solid color-mix(in srgb,var(--accent) 28%,transparent);
-}
-.step h3{margin-top:3px}
-.step p{color:var(--fg-soft);font-size:14.5px;margin:0 0 12px}
+/* stat tiles */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}
+@media(max-width:760px){.stats{grid-template-columns:1fr}}
+.stat{background:var(--bg-card);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.stat .sl{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:650;
+  letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px}
+.stat .sv{font-size:34px;font-weight:700;letter-spacing:-.03em;line-height:1;color:var(--fg);
+  font-variant-numeric:tabular-nums}
+.stat .sd{font-size:13px;color:var(--fg-faint);margin-top:8px;line-height:1.55}
+.stat.good .sl{color:var(--good)} .stat.good{border-color:var(--good-line)}
+.stat.warn .sl{color:var(--warn)} .stat.warn{border-color:var(--warn-line)}
+.stat.zero .sl{color:var(--fg-faint)}
 
-/* ---------- table ---------- */
+/* throughput bar */
+.tp{background:var(--bg-card);border:1px solid var(--line);border-radius:12px;padding:20px}
+.tp-row{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+.tp-v{font-size:30px;font-weight:700;letter-spacing:-.03em;color:var(--fg);font-variant-numeric:tabular-nums}
+.tp-u{font-size:15px;color:var(--fg-soft);font-weight:600}
+.tp-cap{font-size:13.2px;color:var(--fg-faint);margin:0 0 16px;line-height:1.55}
+.tp-track{height:12px;border-radius:6px;background:var(--bg-soft);border:1px solid var(--line-soft);position:relative;overflow:hidden}
+.tp-fill{position:absolute;top:0;bottom:0;left:0;width:98%;border-radius:6px;
+  background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 45%,transparent),var(--accent))}
+.tp-mark{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--fg-faint);opacity:.55}
+.tp-scale{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--fg-faint);margin-top:7px}
+
+#verify .grid.g2{align-items:start}
+
+/* table */
 .tw{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg-card)}
-table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:520px}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:540px}
 th,td{padding:13px 16px;text-align:left;border-bottom:1px solid var(--line-soft);vertical-align:top}
-th{
-  font-weight:640;font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;
-  color:var(--fg-faint);background:var(--bg-soft);
-}
+th{font-weight:640;font-size:12.5px;letter-spacing:.04em;color:var(--fg-faint);background:var(--bg-soft)}
 tr:last-child td{border-bottom:0}
 td code{font-family:var(--mono);font-size:12.5px;color:var(--accent)}
-.yes{color:var(--good);font-weight:600}
-.no{color:var(--bad);font-weight:600}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:100px;
+  font-size:12px;font-weight:640;white-space:nowrap}
+.badge.g{background:var(--good-soft);color:var(--good);border:1px solid var(--good-line)}
+.badge.n{background:var(--bg-soft);color:var(--fg-soft);border:1px solid var(--line)}
+.badge.r{background:var(--bad-soft);color:var(--bad);border:1px solid var(--bad-line)}
 
-/* ---------- callouts ---------- */
-.note{
-  display:flex;gap:13px;padding:16px 18px;border-radius:12px;
-  background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 26%,transparent);
-  font-size:14.5px;color:var(--fg);line-height:1.6;
-}
-.note.bad{background:var(--bad-soft);border-color:color-mix(in srgb,var(--bad) 26%,transparent)}
-.note.good{background:var(--good-soft);border-color:color-mix(in srgb,var(--good) 26%,transparent)}
-.note .ni{flex:none;font-size:17px;line-height:1.4}
+/* notes */
+.note{display:flex;gap:13px;padding:16px 18px;border-radius:12px;background:var(--warn-soft);
+  border:1px solid var(--warn-line);font-size:14.6px;color:var(--fg);line-height:1.65}
+.note.bad{background:var(--bad-soft);border-color:var(--bad-line)}
+.note.good{background:var(--good-soft);border-color:var(--good-line)}
+.note .ni{flex:none;font-size:16px;line-height:1.5;font-weight:700}
+.note.bad .ni{color:var(--bad)} .note.good .ni{color:var(--good)} .note .ni{color:var(--warn)}
 .note b{font-weight:650}
 
-/* ---------- checklist ---------- */
+/* checklist */
 .check{display:grid;gap:9px;grid-template-columns:repeat(2,1fr)}
-@media(max-width:820px){.check{grid-template-columns:1fr}}
-.check div{
-  display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--fg-soft);
-  background:var(--bg-card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;
-}
-.check .box{
-  flex:none;width:17px;height:17px;border-radius:5px;border:1.5px solid var(--line);
-  margin-top:3px;
-}
+@media(max-width:840px){.check{grid-template-columns:1fr}}
+.check div{display:flex;gap:10px;align-items:flex-start;font-size:14.4px;color:var(--fg-soft);
+  background:var(--bg-card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.check .box{flex:none;width:17px;height:17px;border-radius:5px;border:1.5px solid var(--line);margin-top:4px}
+code.inl{font-family:var(--mono);font-size:.88em;background:var(--bg-soft);border:1px solid var(--line-soft);
+  padding:1px 6px;border-radius:5px;color:var(--fg)}
 
-/* ---------- footer ---------- */
-footer{border-top:1px solid var(--line);padding:40px 0 56px;color:var(--fg-faint);font-size:14px}
+footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint);font-size:14px}
 .foot-in{display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between}
 .foot-links{display:flex;gap:18px;flex-wrap:wrap}
 .foot-links a{color:var(--fg-soft)}
@@ -269,19 +250,20 @@ footer{border-top:1px solid var(--line);padding:40px 0 56px;color:var(--fg-faint
 
 <header class="nav">
   <div class="wrap nav-in">
-    <a class="brand" href="#top"><span class="dot"></span>s3-l4-proxy</a>
+    <a class="brand" href="#top"><span class="dot"></span>S3 四层代理方案</a>
     <nav class="nav-links">
-      <a href="#architecture">Architecture</a>
-      <a href="#start">Quick start</a>
-      <a href="#config" class="hide-sm">Config</a>
-      <a href="#security">Security</a>
-      <a href="#docs" class="hide-sm">Docs</a>
-      <button class="icon-btn" id="theme" aria-label="Toggle color theme" title="Toggle theme">
+      <a href="#arch">架构</a>
+      <a href="#scope" class="hide-sm">适用边界</a>
+      <a href="#security">安全设计</a>
+      <a href="#flow">部署流程</a>
+      <a href="#rollback" class="hide-sm">变更回滚</a>
+      <a href="#verify">验证结果</a>
+      <button class="icon-btn" id="theme" aria-label="切换深浅色主题" title="切换主题">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
       </button>
       <a class="nav-gh" href="https://github.com/scott987-cmd/s3-l4-proxy">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
-        GitHub
+        源码
       </a>
     </nav>
   </div>
@@ -293,346 +275,450 @@ footer{border-top:1px solid var(--line);padding:40px 0 56px;color:var(--fg-faint
   <div class="wrap hero-in">
     <div class="eyebrow">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
-      Verified in production
+      已在真实环境验证
     </div>
-    <h1>A proxy that <span class="grad">refuses to look</span> at your data.</h1>
+    <h1>不解密、不改写、<span class="grad">不持有凭证</span>的对象存储通路</h1>
     <p class="lede">
-      Layer-4 TCP 443 passthrough from a load balancer to <b>S3-compatible object storage on a private endpoint</b>.
-      TLS is never terminated, the request is never rewritten, and no storage credential ever touches the proxy —
-      so encryption and signature bytes stay intact from client to bucket.
+      使用四层 CLB TCP 443 透传与 nginx stream，把 S3 客户端流量转发到客户网络中的
+      <b>S3 兼容对象存储私网 endpoint</b>。代理不终结 TLS、不修改 HTTP/S3 请求、不保存对象存储凭证——
+      客户端到对象存储的<b>加密与认证签名保真是端到端的</b>。
     </p>
     <div class="cta">
-      <a class="btn btn-primary" href="#start">
-        Deploy in three commands
+      <a class="btn btn-primary" href="#flow">看部署流程
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
       </a>
-      <a class="btn btn-ghost" href="https://github.com/scott987-cmd/s3-l4-proxy">View source</a>
+      <a class="btn btn-ghost" href="https://github.com/scott987-cmd/s3-l4-proxy">获取软件包</a>
     </div>
     <div class="pills">
-      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>No TLS termination</span>
-      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>No credentials on the proxy</span>
-      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>Stateless, vendor-neutral</span>
-      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>Backup and auto-rollback</span>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>端到端 TLS</span>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>认证签名保真</span>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>无状态横向扩展</span>
+      <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>通用 S3 数据面</span>
     </div>
   </div>
 </div>
 
-<section id="architecture">
+<!-- ============ 架构 ============ -->
+<section id="arch">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-label">Architecture</div>
-      <h2>Four hops, zero interpretation</h2>
-      <p>Every box on this path moves bytes without understanding them. The only components that know what an S3 request means are the two ends.</p>
+      <div class="sec-label">一、方案定位</div>
+      <h2>四段链路，没有一段理解 S3 语义</h2>
+      <p>SaaS 机房通过固定公网出口访问客户 CLB，CLB 将 TCP 443 分发到客户 ECS 上的 nginx stream，ECS 再经客户内网访问对象存储私网 endpoint。全链路只搬运字节。</p>
     </div>
 
-    <figure class="diagram" style="margin:0">
-      <svg viewBox="0 0 900 300" role="img" aria-label="S3 client connects over public TCP 443 to an L4 CLB, which balances across two ECS hosts running nginx stream, which forward over the customer intranet to the object storage private endpoint. TLS is preserved end to end.">
+    <figure class="fig" style="margin:0">
+      <svg class="d" viewBox="0 0 900 300" role="img" aria-label="S3 客户端经公网 TCP 443 到四层 CLB，CLB 负载分担到两台 ECS 上的 nginx stream，再经客户内网转发到对象存储私网 endpoint；TLS 与签名端到端保真。">
         <defs>
           <marker id="ar" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto">
             <path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--fg-faint)"/>
           </marker>
-          <path id="p1" d="M148,150 H250"/>
-          <path id="p2" d="M352,150 C395,150 395,92 440,92"/>
-          <path id="p3" d="M352,150 C395,150 395,208 440,208"/>
-          <path id="p4" d="M574,92 C625,92 640,150 690,150"/>
-          <path id="p5" d="M574,208 C625,208 640,150 690,150"/>
         </defs>
 
-        <!-- end-to-end TLS band -->
-        <path class="dg-tls" d="M78,50 H795"/>
-        <path class="dg-tls" d="M78,50 V78"/>
-        <path class="dg-tls" d="M795,50 V115"/>
-        <text class="dg-tls-label" x="436" y="42" text-anchor="middle">end-to-end TLS + signature preserved — no hop in between can read or alter it</text>
+        <path class="dg-tls" d="M78,52 H792"/>
+        <path class="dg-tls" d="M78,52 V80"/>
+        <path class="dg-tls" d="M792,52 V112"/>
+        <text class="dg-tls-label" x="435" y="44" text-anchor="middle">端到端 TLS + 认证签名保真 · 中间任何一跳都无法读取或篡改</text>
 
-        <!-- edges -->
-        <use href="#p1" class="dg-line" marker-end="url(#ar)"/>
-        <use href="#p2" class="dg-line" marker-end="url(#ar)"/>
-        <use href="#p3" class="dg-line" marker-end="url(#ar)"/>
-        <use href="#p4" class="dg-line" marker-end="url(#ar)"/>
-        <use href="#p5" class="dg-line" marker-end="url(#ar)"/>
+        <path class="dg-line" d="M150,152 H252" marker-end="url(#ar)"/>
+        <path class="dg-line" d="M354,152 C396,152 396,94 442,94" marker-end="url(#ar)"/>
+        <path class="dg-line" d="M354,152 C396,152 396,210 442,210" marker-end="url(#ar)"/>
+        <path class="dg-line" d="M576,94 C626,94 640,152 688,152" marker-end="url(#ar)"/>
+        <path class="dg-line" d="M576,210 C626,210 640,152 688,152" marker-end="url(#ar)"/>
 
-        <circle class="dot-anim" r="3.5"><animateMotion dur="3.2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" path="M148,150 H250 C295,150 295,92 440,92 C625,92 640,150 690,150"/></circle>
-        <circle class="dot-anim" r="3.5" opacity=".6"><animateMotion dur="3.2s" begin="1.6s" repeatCount="indefinite" path="M148,150 H250 C295,150 295,208 440,208 C625,208 640,150 690,150"/></circle>
+        <circle class="dot-anim" r="3.5"><animateMotion dur="3.4s" repeatCount="indefinite" path="M150,152 H252 C296,152 296,94 442,94 C626,94 640,152 688,152"/></circle>
+        <circle class="dot-anim" r="3.5" opacity=".6"><animateMotion dur="3.4s" begin="1.7s" repeatCount="indefinite" path="M150,152 H252 C296,152 296,210 442,210 C626,210 640,152 688,152"/></circle>
 
-        <text class="dg-edge" x="199" y="140" text-anchor="middle">public TCP 443</text>
-        <text class="dg-edge" x="640" y="118" text-anchor="middle">intranet TCP 443</text>
+        <text class="dg-edge" x="201" y="142" text-anchor="middle">公网 TCP 443</text>
+        <text class="dg-edge" x="644" y="120" text-anchor="middle">客户内网 TCP 443</text>
 
-        <!-- client -->
-        <rect class="dg-box-accent" x="18" y="118" width="130" height="64" rx="11"/>
-        <text class="dg-label" x="83" y="145" text-anchor="middle">S3 client</text>
-        <text class="dg-sub" x="83" y="163" text-anchor="middle">TLS + SigV4</text>
+        <rect class="dg-box-accent" x="20" y="120" width="130" height="64" rx="11"/>
+        <text class="dg-label" x="85" y="147" text-anchor="middle">S3 客户端</text>
+        <text class="dg-sub" x="85" y="165" text-anchor="middle">TLS + 签名</text>
 
-        <!-- clb -->
-        <rect class="dg-box" x="250" y="112" width="102" height="76" rx="11"/>
-        <text class="dg-label" x="301" y="139" text-anchor="middle">L4 CLB</text>
-        <text class="dg-sub" x="301" y="156" text-anchor="middle">TCP passthrough</text>
-        <text class="dg-sub" x="301" y="171" text-anchor="middle">ACL allowlist</text>
+        <rect class="dg-box" x="252" y="114" width="102" height="76" rx="11"/>
+        <text class="dg-label" x="303" y="141" text-anchor="middle">四层 CLB</text>
+        <text class="dg-cn" x="303" y="159" text-anchor="middle">TCP 透传</text>
+        <text class="dg-cn" x="303" y="175" text-anchor="middle">ACL 白名单</text>
 
-        <!-- ecs a -->
-        <rect class="dg-box" x="440" y="62" width="134" height="60" rx="11"/>
-        <text class="dg-label" x="507" y="87" text-anchor="middle">ECS-A</text>
-        <text class="dg-sub" x="507" y="104" text-anchor="middle">nginx stream :443</text>
+        <rect class="dg-box" x="442" y="64" width="134" height="60" rx="11"/>
+        <text class="dg-label" x="509" y="89" text-anchor="middle">ECS-A</text>
+        <text class="dg-sub" x="509" y="106" text-anchor="middle">nginx stream :443</text>
 
-        <!-- ecs b -->
-        <rect class="dg-box" x="440" y="178" width="134" height="60" rx="11"/>
-        <text class="dg-label" x="507" y="203" text-anchor="middle">ECS-B</text>
-        <text class="dg-sub" x="507" y="220" text-anchor="middle">nginx stream :443</text>
+        <rect class="dg-box" x="442" y="180" width="134" height="60" rx="11"/>
+        <text class="dg-label" x="509" y="205" text-anchor="middle">ECS-B</text>
+        <text class="dg-sub" x="509" y="222" text-anchor="middle">nginx stream :443</text>
 
-        <!-- storage -->
-        <rect class="dg-box-accent" x="690" y="115" width="192" height="70" rx="11"/>
-        <text class="dg-label" x="786" y="142" text-anchor="middle">S3-compatible storage</text>
-        <text class="dg-sub" x="786" y="160" text-anchor="middle">private endpoint :443</text>
-        <text class="dg-sub" x="786" y="175" text-anchor="middle">bucket policy + least privilege</text>
+        <rect class="dg-box-accent" x="688" y="118" width="176" height="68" rx="11"/>
+        <text class="dg-label" x="776" y="145" text-anchor="middle">S3 兼容对象存储</text>
+        <text class="dg-sub" x="776" y="163" text-anchor="middle">private endpoint :443</text>
+        <text class="dg-cn" x="776" y="179" text-anchor="middle">桶策略 · 最小权限</text>
 
-        <!-- footnote row -->
-        <text class="dg-sub" x="301" y="262" text-anchor="middle">no TLS termination</text>
-        <text class="dg-sub" x="507" y="262" text-anchor="middle">no certificates · no keys · stateless</text>
-        <text class="dg-sub" x="786" y="262" text-anchor="middle">sees the proxy's source IP</text>
+        <text class="dg-cn" x="303" y="266" text-anchor="middle">不终结 TLS</text>
+        <text class="dg-cn" x="509" y="266" text-anchor="middle">无证书 · 无私钥 · 无会话状态</text>
+        <text class="dg-cn" x="776" y="266" text-anchor="middle">看到的是代理的来源地址</text>
       </svg>
       <figcaption>
-        The load balancer runs a <strong>TCP</strong> listener, not an HTTP one. nginx uses a fixed <code class="inl">upstream</code> block rather than a variable <code class="inl">proxy_pass</code> — the variable form puts nginx on the runtime resolver path and produced connection resets at roughly 5-second intervals. A systemd timer reloads nginx every 5 minutes so the fixed upstream still tracks backend DNS.
+        CLB 必须是 <strong>TCP</strong> 四层监听而非 HTTP 监听。nginx 使用固定 <code class="inl">upstream</code> 块而非变量式 <code class="inl">proxy_pass</code>——变量形式会走 nginx stream 运行时 resolver 路径，实测出现约 5 秒周期的连接重置。固定 upstream 的代价是 DNS 变更需 reload，由 systemd timer 每 5 分钟平滑刷新。
+      </figcaption>
+    </figure>
+
+    <div class="grid g2" style="margin-top:18px">
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h3>端到端 TLS</h3>
+        <p>CLB 和 nginx 均不解密，代理主机不部署对象存储证书或私钥。Host、SNI、path、query、Authorization、请求体及签名头保持原样。</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></div>
+        <h3>无状态扩展 · 通用数据面</h3>
+        <p>nginx stream 不保存会话状态，加 ECS 即可横向扩容。网络层不绑定厂商；兼容性由 endpoint、证书、寻址模式和认证协议决定。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 四层 vs 七层 + 适用边界 ============ -->
+<section id="scope">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">二、使用前提与不适用场景</div>
+      <h2>先判断该不该用，再谈怎么用</h2>
+      <p>四层不是「功能更少的网关」，而是另一个层次。这个区分决定方案是否成立。</p>
+    </div>
+
+    <div class="tw" style="margin-bottom:22px">
+      <table>
+        <thead><tr><th>需求</th><th>四层 TCP 透传</th><th>七层网关</th></tr></thead>
+        <tbody>
+          <tr><td>TLS 与签名原样透传</td><td><span class="badge g">✓ 推荐</span></td><td>需严格保持签名语义</td></tr>
+          <tr><td>虚拟 AK/SK、代签或重签</td><td><span class="badge r">✗ 不支持</span></td><td><span class="badge g">✓ 支持</span></td></tr>
+          <tr><td>Host/path 改写、寻址转换</td><td><span class="badge r">✗ 不支持</span></td><td><span class="badge g">✓ 支持</span></td></tr>
+          <tr><td>对象级鉴权、限流和审计</td><td><span class="badge r">✗ HTTP 不可见</span></td><td><span class="badge g">✓ 支持</span></td></tr>
+          <tr><td>WAF Header/Body 检查</td><td><span class="badge r">✗ 不支持</span></td><td><span class="badge g">✓ 支持</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid g2">
+      <div class="card">
+        <div class="ico" style="background:var(--good-soft);color:var(--good)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <h3>六项使用前提</h3>
+        <ul class="ynlist" style="margin-top:12px">
+          <li><span class="m ok">✓</span><span>ECS 能解析并访问 <code class="inl">S3_BACKEND_HOST:PORT</code>，生产优先私网 endpoint</span></li>
+          <li><span class="m ok">✓</span><span>客户端用 <code class="inl">S3_CLIENT_HOST</code> 完成 SNI 与签名，且解析指向 CLB</span></li>
+          <li><span class="m ok">✓</span><span>对象存储证书覆盖该 hostname，或有等价 endpoint/SNI 组合</span></li>
+          <li><span class="m ok">✓</span><span>认证协议被目标 endpoint 接受，region / service / endpoint family 匹配</span></li>
+          <li><span class="m ok">✓</span><span>CLB 为 TCP 四层监听，链路无设备改动 TLS 或应用层请求</span></li>
+          <li><span class="m ok">✓</span><span>至少两台跨可用区 ECS，配 TCP 健康检查与 N+1 冗余</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="ico" style="background:var(--bad-soft);color:var(--bad)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></div>
+        <h3>六类不适用场景</h3>
+        <ul class="ynlist" style="margin-top:12px">
+          <li><span class="m no">✗</span><span>需要虚拟 AK/SK 转换、STS 获取、凭证托管、代签或重签</span></li>
+          <li><span class="m no">✗</span><span>需要改写 Host/path、path-style 与 virtual-hosted 转换</span></li>
+          <li><span class="m no">✗</span><span>需要 WAF、对象级限流、租户鉴权、对象级审计或内容扫描</span></li>
+          <li><span class="m no">✗</span><span>客户端 hostname 不被后端证书覆盖且无兼容组合</span></li>
+          <li><span class="m no">✗</span><span>客户端无法生成目标对象存储要求的认证协议</span></li>
+          <li><span class="m no">✗</span><span>无法配置 CLB ACL 与多后端高可用，只能裸露单台 ECS 公网地址</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 安全设计 ============ -->
+<section id="security">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">三、安全设计</div>
+      <h2>五层安全边界</h2>
+      <p>代理机上真正持有的资产只有「网络可达性」。因此控制项全部围绕收敛可达性展开。</p>
+    </div>
+
+    <div class="layers">
+      <div class="layer">
+        <div class="li"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+        <div><div class="ln">数据层</div><div class="lc">客户端侧加密</div></div>
+        <div class="lr">敏感数据出客户端机房前使用客户 KMS 加密，代理与存储侧只接触密文。</div>
+      </div>
+      <div class="layer">
+        <div class="li"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <div><div class="ln">传输层</div><div class="lc">端到端 TLS</div></div>
+        <div class="lr">CLB 与 nginx 不终结 TLS，不保存证书和私钥。</div>
+      </div>
+      <div class="layer">
+        <div class="li"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <div><div class="ln">接入层</div><div class="lc">CLB ACL 与安全组</div></div>
+        <div class="lr">只放行客户端固定出口 IP；ECS 443 只接受 CLB 或批准来源。</div>
+      </div>
+      <div class="layer">
+        <div class="li"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="7" rx="2"/><rect x="2" y="13" width="20" height="7" rx="2"/><path d="M6 7.5h.01M6 16.5h.01"/></svg></div>
+        <div><div class="ln">代理层</div><div class="lc">主机与出向收敛</div></div>
+        <div class="lr">专用主机只监听 443/22；出向仅允许 DNS、运维依赖和对象存储私网 endpoint。</div>
+      </div>
+      <div class="layer">
+        <div class="li"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7a4 4 0 1 0-4 4h.5L14 13.5V16h2.5l1-1v-2l1.5-1.5V9h-3z"/><path d="m3 21 8-8"/></svg></div>
+        <div><div class="ln">存储层</div><div class="lc">最小权限与来源限制</div></div>
+        <div class="lr">专用子账号/角色只授权目标桶必要动作；桶策略限制代理实际来源地址。</div>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:20px">
+      <div class="note bad">
+        <span class="ni">!</span>
+        <div><b>L4 可见性限制。</b>代理看不到加密后的 HTTP/S3 语义，<b>不能</b>记录 bucket、object key、access key 或请求动作。nginx stream 只能记录连接来源、时长、字节数、状态和上游地址。对象级审计必须由客户端、对象存储审计日志或七层网关完成。</div>
+      </div>
+      <div class="note">
+        <span class="ni">!</span>
+        <div><b>先确认实际来源再写桶策略。</b>四层之下对象存储看到的是 ECS 访问私网 endpoint 时使用的源地址/网段——不是客户端出口 IP，也不一定是 ECS 公网 IP。必须通过审计日志或网络设计确认真实值，猜测的结果要么放得过宽，要么直接锁死生产。</div>
+      </div>
+    </div>
+
+    <div class="note bad" style="margin-top:14px">
+      <span class="ni">✗</span>
+      <div><b>不要默认叠加 <code class="inl">Deny + Principal:"*" + NotIpAddress</code>。</b>默认隐式拒绝已提供兜底，而显式 Deny 会覆盖所有 Allow——包括你还需要的那些。条件键用 <code class="inl">volc:SourceIp</code>，不要用 <code class="inl">tos:SourceIp</code>；删除权限仅在业务明确需要时才加 <code class="inl">tos:DeleteObject</code>。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 部署流程 ============ -->
+<section id="flow">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">五、软件包与一键使用</div>
+      <h2>部署 → 巡检 → 验收 → 运维</h2>
+      <p>四个阶段各有一条命令。软件包与 <code class="inl">config.example.env</code> 不包含 AK/SK，真实凭证只在验收进程环境中临时提供。</p>
+    </div>
+
+    <div class="flow">
+      <div class="fstep">
+        <div class="fi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg></div>
+        <div class="fn">STEP 01</div>
+        <h3>一键部署</h3>
+        <p>按需装 nginx 与动态 stream 模块，渲染配置，应用运行时基线，装 DNS reload timer。</p>
+        <code>cp config.example.env config.env
+sudo bash scripts/\
+install_l4_proxy.sh \
+CONFIG=config.env</code>
+      </div>
+      <div class="fstep">
+        <div class="fi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+        <div class="fn">STEP 02</div>
+        <h3>一键巡检</h3>
+        <p>只读检查服务、监听、配置、上游与安全基线。退出码 0 全通过 / 1 有告警 / 2 有失败。</p>
+        <code>bash scripts/\
+verify_l4_proxy.sh \
+-c config.env</code>
+      </div>
+      <div class="fstep">
+        <div class="fi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></div>
+        <div class="fn">STEP 03</div>
+        <h3>一键验收</h3>
+        <p>节点健康 + 本机穿透 + CLB 诊断，加 <code class="inl">RUN_SPEED=1</code> 走真实 PUT/GET/MD5。</p>
+        <code>S3_ACCESS_KEY=... \
+S3_SECRET_KEY=... \
+bash scripts/\
+acceptance_l4_proxy.sh \
+CONFIG=config.env RUN_SPEED=1</code>
+      </div>
+      <div class="fstep">
+        <div class="fi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div>
+        <div class="fn">STEP 04</div>
+        <h3>一键运维</h3>
+        <p>状态、健康、reload、restart、上游探测、连接统计，以及紧急解除出向锁定。</p>
+        <code>bash scripts/ops_l4_proxy.sh \
+status|health|reload|\
+restart|upstream|conns \
+CONFIG=config.env</code>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:20px">
+      <span class="ni">!</span>
+      <div>专用代理机默认 <code class="inl">MAIN_MODE=replace</code>，会安装已知的 stream-only nginx 主配置。与现有 nginx HTTP 服务<b>混部时必须</b>显式设置 <code class="inl">MAIN_MODE=auto</code> 和 <code class="inl">DEDICATED_PROXY_HOST=0</code>，并单独评审端口与变更影响。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 变更与回滚 ============ -->
+<section id="rollback">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">六、变更与回滚</div>
+      <h2>先备份，再改动，失败自动还原</h2>
+      <p>配置脚本在写入前创建运行级备份；<code class="inl">nginx -t</code> 失败或过程报错时，自动恢复 nginx、systemd limit、sysctl 与防火墙状态。</p>
+    </div>
+
+    <figure class="fig" style="margin:0">
+      <svg class="d" viewBox="0 0 900 230" role="img" aria-label="变更流程：运行级备份 → 渲染 stream 配置 → nginx -t 校验；通过则 reload 生效，失败则自动回滚并恢复 nginx、systemd、sysctl 与防火墙状态。">
+        <defs>
+          <marker id="ar2" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto">
+            <path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--fg-faint)"/>
+          </marker>
+        </defs>
+
+        <path class="dg-line" d="M150,101 H186" marker-end="url(#ar2)"/>
+        <path class="dg-line" d="M330,101 H360" marker-end="url(#ar2)"/>
+        <path class="dg-line" d="M474,101 C500,101 500,52 528,52" marker-end="url(#ar2)"/>
+        <path class="dg-line" d="M474,101 C500,101 500,158 528,158" marker-end="url(#ar2)"/>
+        <path class="dg-line" d="M676,52 H710" marker-end="url(#ar2)"/>
+        <path class="dg-line" d="M676,158 H710" marker-end="url(#ar2)"/>
+
+        <text class="dg-edge" x="505" y="42" text-anchor="end" style="fill:var(--good)">通过</text>
+        <text class="dg-edge" x="505" y="172" text-anchor="end" style="fill:var(--bad)">失败</text>
+
+        <rect class="dg-box" x="18" y="74" width="132" height="54" rx="10"/>
+        <text class="dg-label" x="84" y="97" text-anchor="middle">运行级备份</text>
+        <text class="dg-sub" x="84" y="114" text-anchor="middle">/var/backups/...</text>
+
+        <rect class="dg-box" x="186" y="74" width="144" height="54" rx="10"/>
+        <text class="dg-label" x="258" y="97" text-anchor="middle">渲染 stream 配置</text>
+        <text class="dg-cn" x="258" y="114" text-anchor="middle">固定 upstream</text>
+
+        <path class="dg-box" d="M417,64 L474,101 L417,138 L360,101 Z"/>
+        <text class="dg-label" x="417" y="99" text-anchor="middle" style="font-size:12px">nginx -t</text>
+        <text class="dg-cn" x="417" y="114" text-anchor="middle" style="font-size:10px">校验</text>
+
+        <rect class="dg-box-good" x="528" y="27" width="148" height="50" rx="10"/>
+        <text class="dg-label" x="602" y="49" text-anchor="middle">平滑 reload</text>
+        <text class="dg-cn" x="602" y="65" text-anchor="middle">新配置生效</text>
+
+        <rect class="dg-box-bad" x="528" y="133" width="148" height="50" rx="10"/>
+        <text class="dg-label" x="602" y="155" text-anchor="middle">自动回滚</text>
+        <text class="dg-cn" x="602" y="171" text-anchor="middle">trap ERR 触发</text>
+
+        <rect class="dg-box" x="710" y="27" width="172" height="50" rx="10"/>
+        <text class="dg-cn" x="796" y="48" text-anchor="middle" style="font-size:11.5px">DNS timer 每 5 分钟</text>
+        <text class="dg-cn" x="796" y="64" text-anchor="middle" style="font-size:11.5px">平滑刷新上游解析</text>
+
+        <rect class="dg-box" x="710" y="133" width="172" height="50" rx="10"/>
+        <text class="dg-cn" x="796" y="154" text-anchor="middle" style="font-size:11.5px">还原 nginx / systemd</text>
+        <text class="dg-cn" x="796" y="170" text-anchor="middle" style="font-size:11.5px">sysctl / 独立防火墙链</text>
+
+        <text class="dg-cn" x="450" y="212" text-anchor="middle">出向锁定默认关闭；启用前先确认 DNS、SSH、监控等必要依赖，且通过独立链实现，不覆盖企业已有规则</text>
+      </svg>
+      <figcaption>
+        备份覆盖 nginx 主配置、stream 配置、systemd limits、logrotate、sysctl 与 iptables。专用 <code class="inl">S3_L4_EGRESS</code> 防火墙链不清空企业已有 OUTPUT 规则，可用 <code class="inl">ops_l4_proxy.sh unlock-egress</code> 单独撤销。
       </figcaption>
     </figure>
   </div>
 </section>
 
-<section id="why">
+<!-- ============ 厂商兼容性 ============ -->
+<section id="vendor">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-label">Trade-off</div>
-      <h2>Choose L4 for a transparent path, L7 to rewrite semantics</h2>
-      <p>This is not a gateway with fewer features. It is a different layer, and the distinction decides whether it fits.</p>
+      <div class="sec-label">四、厂商兼容性</div>
+      <h2>兼容的是 TCP/TLS 数据面，不是认证协议</h2>
+      <p>数据面通用不代表不同厂商的签名协议天然互通。最终上线必须使用客户真实 SDK/CLI 完成 PUT、GET、HEAD、Multipart 与完整性验证。</p>
     </div>
     <div class="tw">
       <table>
-        <thead><tr><th>Requirement</th><th>L4 TCP passthrough</th><th>L7 gateway</th></tr></thead>
+        <thead><tr><th>对象存储</th><th>结论</th><th>校验重点</th></tr></thead>
         <tbody>
-          <tr><td>TLS and signature passed through untouched</td><td class="yes">✓ recommended</td><td>needs strict signature preservation</td></tr>
-          <tr><td>Virtual AK/SK, delegated or re-signing</td><td class="no">✗</td><td class="yes">✓</td></tr>
-          <tr><td>Host / path rewrite, addressing-style conversion</td><td class="no">✗</td><td class="yes">✓</td></tr>
-          <tr><td>Object-level authz, rate limiting, audit</td><td class="no">✗ HTTP is opaque</td><td class="yes">✓</td></tr>
-          <tr><td>WAF header / body inspection</td><td class="no">✗</td><td class="yes">✓</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="note bad" style="margin-top:18px">
-      <span class="ni">✗</span>
-      <div><b>Do not try to approximate L7 controls with TCP rules.</b> If you need object-level audit, per-tenant authorization, or credential translation, this is the wrong layer — and no amount of proxy configuration changes that.</div>
-    </div>
-  </div>
-</section>
-
-<section id="start">
-  <div class="wrap">
-    <div class="sec-head">
-      <div class="sec-label">Quick start</div>
-      <h2>Deploy, verify, accept</h2>
-      <p>Every script is idempotent and backs up the system state before writing anything. A failed <code class="inl">nginx -t</code> rolls the whole run back automatically.</p>
-    </div>
-
-    <div class="steps">
-      <div class="step">
-        <div>
-          <h3>Configure</h3>
-          <p>Copy the template and fill in your endpoints. Real credentials never go in this file.</p>
-          <div class="code">
-            <div class="code-head"><span>proxy node · shell</span><button class="copy">Copy</button></div>
-<pre><span class="c"># on the ECS proxy node</span>
-git clone https://github.com/scott987-cmd/s3-l4-proxy.git
-<span class="k">cd</span> s3-l4-proxy
-cp config.example.env config.env
-
-<span class="c"># edit: S3_BACKEND_HOST, S3_CLIENT_HOST, S3_REGION, LISTEN_PORT, CLB_IP</span></pre>
-          </div>
-        </div>
-      </div>
-
-      <div class="step">
-        <div>
-          <h3>Install</h3>
-          <p>Installs nginx and the stream module if missing, renders the config, applies the runtime baseline, then verifies itself.</p>
-          <div class="code">
-            <div class="code-head"><span>proxy node · shell</span><button class="copy">Copy</button></div>
-<pre>sudo bash scripts/install_l4_proxy.sh CONFIG=config.env
-bash scripts/verify_l4_proxy.sh -c config.env
-
-<span class="c"># exit 0 = all pass · 1 = warnings · 2 = failures</span></pre>
-          </div>
-        </div>
-      </div>
-
-      <div class="step">
-        <div>
-          <h3>Accept</h3>
-          <p>A real PUT / GET / MD5 round trip through the load balancer. Credentials come from the process environment and are never written to disk.</p>
-          <div class="code">
-            <div class="code-head"><span>client machine · shell</span><button class="copy">Copy</button></div>
-<pre>S3_ACCESS_KEY=<span class="s">...</span> S3_SECRET_KEY=<span class="s">...</span> \
-  bash scripts/acceptance_l4_proxy.sh CONFIG=config.env RUN_SPEED=1</pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="note good" style="margin-top:26px">
-      <span class="ni">✓</span>
-      <div><b>Reference result.</b> Deployed from the release archive onto a freshly reinstalled CentOS Stream 9 host (nginx 1.20.1, dynamic stream module): inspection <code class="inl">PASS=20 WARN=1 FAIL=0</code> — the single warning is the egress lock being off by security default. Through a public CLB against Volcengine TOS: 1 MB PUT 200, GET 200, MD5 match; 100 MB / 500 MB single-connection transfers reached roughly 78–98 MB/s, close to the test instance NIC ceiling.</div>
-    </div>
-  </div>
-</section>
-
-<section id="ops">
-  <div class="wrap">
-    <div class="sec-head">
-      <div class="sec-label">Day two</div>
-      <h2>One entrypoint for everything after deploy</h2>
-      <p>Wire <code class="inl">health</code> into monitoring — it exits 0 / 1 / 2 for pass / warnings / failures.</p>
-    </div>
-    <div class="code">
-      <div class="code-head"><span>ops_l4_proxy.sh</span><button class="copy">Copy</button></div>
-<pre>bash scripts/ops_l4_proxy.sh status   CONFIG=config.env  <span class="c"># service, listener, upstream, config</span>
-bash scripts/ops_l4_proxy.sh health   CONFIG=config.env  <span class="c"># full verification</span>
-bash scripts/ops_l4_proxy.sh conns    CONFIG=config.env  <span class="c"># connection states and peers</span>
-bash scripts/ops_l4_proxy.sh upstream CONFIG=config.env  <span class="c"># DNS + timed HTTPS probe</span>
-sudo bash scripts/ops_l4_proxy.sh reload CONFIG=config.env
-
-<span class="c"># emergency: remove only the dedicated S3_L4_EGRESS chain</span>
-sudo bash scripts/ops_l4_proxy.sh unlock-egress CONFIG=config.env</pre>
-    </div>
-    <div class="grid g3" style="margin-top:20px">
-      <div class="card">
-        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div>
-        <h3>Connection-level logs</h3>
-        <p>Source, duration, bytes, status, upstream and connect time — rotated daily, 15 generations. Never bucket or object key: those bytes are encrypted.</p>
-      </div>
-      <div class="card">
-        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/><path d="M21 3v6h-6"/></svg></div>
-        <h3>Backup and rollback</h3>
-        <p>nginx config, stream config, systemd limits, logrotate, sysctl and iptables are captured before any write and restored automatically on failure.</p>
-      </div>
-      <div class="card">
-        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></div>
-        <h3>Stateless scaling</h3>
-        <p>No session state to migrate. Install the same config on a new host, add it to the backend group, wait for the health check.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="config">
-  <div class="wrap">
-    <div class="sec-head">
-      <div class="sec-label">Configuration</div>
-      <h2>The settings that matter first</h2>
-      <p>Everything is an environment variable. Defaults come first, then <code class="inl">config.env</code>, then command-line <code class="inl">KEY=VALUE</code> arguments. Full table in the <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/CONFIGURATION.md">configuration reference</a>.</p>
-    </div>
-    <div class="tw">
-      <table>
-        <thead><tr><th>Variable</th><th>Default</th><th>What it controls</th></tr></thead>
-        <tbody>
-          <tr><td><code>S3_BACKEND_HOST</code></td><td><code>tos-s3-&lt;region&gt;.ivolces.com</code></td><td>The endpoint the ECS host connects to. Use the private endpoint in production. The default is Volcengine TOS — set it explicitly for any other vendor.</td></tr>
-          <tr><td><code>S3_CLIENT_HOST</code></td><td><em>empty</em></td><td>Hostname the client uses for TLS SNI and signing. Must be covered by the backend certificate.</td></tr>
-          <tr><td><code>LISTEN_PORT</code></td><td><code>443</code></td><td>nginx stream listener. Must match the CLB backend port and its health check.</td></tr>
-          <tr><td><code>MAIN_MODE</code></td><td><code>replace</code></td><td><code>replace</code> installs a stream-only main config on a dedicated host. Use <code>auto</code> with <code>DEDICATED_PROXY_HOST=0</code> when co-locating with an nginx HTTP service.</td></tr>
-          <tr><td><code>ENABLE_PROXY_PROTOCOL</code></td><td><code>0</code></td><td>Turn on only if the CLB listener also sends PROXY protocol. A one-sided setting breaks every plain TLS client.</td></tr>
-          <tr><td><code>EGRESS_LOCK</code></td><td><code>0</code></td><td>Restricts outbound traffic to DNS, SSH, <code>EXTRA_ALLOW</code> and the resolved backend, via a dedicated chain that never flushes existing rules.</td></tr>
-          <tr><td><code>DNS_RELOAD_INTERVAL</code></td><td><code>5min</code></td><td>How often nginx is gracefully reloaded so the fixed upstream picks up backend DNS changes.</td></tr>
+          <tr><td>火山 TOS</td><td><span class="badge g">已真实验证</span></td><td>使用 <code>tos-s3-*</code> endpoint family；service 为 <code>s3</code>。</td></tr>
+          <tr><td>AWS S3</td><td><span class="badge n">L4 数据面兼容</span></td><td>S3/VPC endpoint、region、service 与证书覆盖的 client host。</td></tr>
+          <tr><td>阿里 OSS</td><td><span class="badge n">TCP 透传兼容</span></td><td>确认客户端使用 OSS 支持的认证协议或兼容模式。</td></tr>
+          <tr><td>华为 OBS</td><td><span class="badge n">TCP 透传兼容</span></td><td>确认 endpoint、证书和签名算法一致。</td></tr>
+          <tr><td>MinIO / Ceph RGW</td><td><span class="badge n">通常兼容</span></td><td>私有 CA、path-style/virtual-hosted 和 SigV4 配置。</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 </section>
 
-<section id="security">
+<!-- ============ 验证结果 ============ -->
+<section id="verify">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-label">Security</div>
-      <h2>What a compromised proxy would actually yield</h2>
-      <p>The design goal is to make that answer boring. Network reachability is the only real asset on the host.</p>
+      <div class="sec-label">七、真实验证结果</div>
+      <h2>重装后的 CentOS Stream 9 上从压缩包一键部署</h2>
+      <p>nginx 1.20.1 + 动态 stream 模块，只监听业务 443 与 SSH 22，DNS reload timer 已启用。</p>
     </div>
+
+    <div class="stats">
+      <div class="stat good">
+        <div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>PASS 通过</div>
+        <div class="sv">20</div>
+        <div class="sd">服务、配置、上游穿透、安全基线与运维基线全部通过</div>
+      </div>
+      <div class="stat warn">
+        <div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 9v5M12 18h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>WARN 告警</div>
+        <div class="sv">1</div>
+        <div class="sd">唯一告警是按安全默认<b>未启用出向锁定</b>，属预期行为</div>
+      </div>
+      <div class="stat zero">
+        <div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>FAIL 失败</div>
+        <div class="sv">0</div>
+        <div class="sd">无失败项</div>
+      </div>
+    </div>
+
     <div class="grid g2">
-      <div class="card">
-        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
-        <h3>Object data — ciphertext only</h3>
-        <p>TLS is never terminated on the path. Encrypt with your own KMS before data leaves the client side and the proxy handles nothing but opaque bytes.</p>
+      <div class="tp">
+        <div class="tp-row"><span class="tp-v">78–98</span><span class="tp-u">MB/s</span></div>
+        <p class="tp-cap">历史大对象实测（100MB / 500MB 单连接），瓶颈接近测试 ECS 网卡上限。</p>
+        <div class="tp-track">
+          <div class="tp-fill"></div>
+          <div class="tp-mark" style="left:78%"></div>
+        </div>
+        <div class="tp-scale"><span>0</span><span>测试实例网卡上限 ≈100 MB/s</span></div>
       </div>
       <div class="card">
-        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 7a4 4 0 1 0-4 4h.5L14 13.5V16h2.5l1-1v-2l1.5-1.5V9h-3z"/><path d="m3 21 8-8"/></svg></div>
-        <h3>Credentials — none present</h3>
-        <p>No AK/SK, session token, signing key, certificate or private key is stored or read anywhere on the proxy path.</p>
-      </div>
-      <div class="card">
-        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path d="m3 3 18 18"/></svg></div>
-        <h3>Metadata — not visible</h3>
-        <p>Bucket, object key, access key and action are inside the encrypted stream. Object-level audit must come from the client or the storage's own audit log.</p>
-      </div>
-      <div class="card">
-        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
-        <h3>Reachability — the real asset</h3>
-        <p>Narrow it: CLB ACL to fixed client egress, security group to the CLB only, optional egress lock, and a bucket policy pinned to the proxy's real source address.</p>
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></div>
+        <h3>业务链路验证</h3>
+        <ul class="ynlist" style="margin-top:12px">
+          <li><span class="m ok">✓</span><span>ECS 解析并访问对象存储私网 endpoint 成功</span></li>
+          <li><span class="m ok">✓</span><span>本机经 <code class="inl">127.0.0.1:443</code> 穿透 nginx，TLS 成功并返回上游 HTTP 403——证明代理未终结 TLS</span></li>
+          <li><span class="m ok">✓</span><span>公网经 CLB 真实 S3：1MB PUT=200、GET=200、MD5 一致</span></li>
+          <li><span class="m ok">✓</span><span><code class="inl">DELETE=403</code> 是测试凭证未授予删除权限，符合最小权限设计</span></li>
+        </ul>
       </div>
     </div>
-    <div class="note" style="margin-top:20px">
+
+    <div class="note" style="margin-top:16px">
       <span class="ni">!</span>
-      <div><b>Get the source address from the audit log, not from a guess.</b> Under L4 the storage sees the address the ECS host uses to reach the private endpoint — not the original client's egress IP, and not necessarily the ECS public IP. Guessing either fails open or locks out production.</div>
+      <div><b>小对象结果不作为容量基线。</b>最终复测 PUT 4.40 MB/s、GET 5.00 MB/s 是 1MB 对象的<b>功能验证</b>结果，衡量的是往返行为而非吞吐能力。任何容量结论都必须以大对象压测为准。</div>
     </div>
   </div>
 </section>
 
+<!-- ============ 准入清单 ============ -->
 <section id="checklist">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-label">Go-live</div>
-      <h2>Production checklist</h2>
-      <p>Ten of these are checked automatically by <code class="inl">verify_l4_proxy.sh</code>. The rest are decisions only you can make.</p>
+      <div class="sec-label">八、生产准入清单</div>
+      <h2>切流前逐项确认</h2>
+      <p>其中多项由 <code class="inl">verify_l4_proxy.sh</code> 自动检查，其余是只能由人做的决策。</p>
     </div>
     <div class="check">
-      <div><span class="box"></span>Two or more ECS nodes across availability zones behind one L4 CLB</div>
-      <div><span class="box"></span>CLB TCP health check targets the same port as business traffic</div>
-      <div><span class="box"></span>CLB ACL and security group allow only the client egress and the CLB</div>
-      <div><span class="box"></span>nginx <code class="inl">stream</code> module loaded and <code class="inl">nginx -t</code> passes</div>
-      <div><span class="box"></span>Active config uses <code class="inl">proxy_pass s3_backend</code>, never <code class="inl">proxy_pass $…</code></div>
-      <div><span class="box"></span><code class="inl">worker_rlimit_nofile</code> and systemd <code class="inl">LimitNOFILE</code> at least 65535</div>
-      <div><span class="box"></span>Stream log collected and rotated</div>
-      <div><span class="box"></span>DNS reload timer enabled</div>
-      <div><span class="box"></span>PROXY protocol setting matches the CLB listener on both sides</div>
-      <div><span class="box"></span>Egress lock enabled only after validating every dependency</div>
-      <div><span class="box"></span>Bucket policy principal, resources and source IP saved and verified</div>
-      <div><span class="box"></span>Real PUT / GET / MD5 through the CLB passes before cutover</div>
+      <div><span class="box"></span>至少两台跨可用区 ECS，CLB 健康后端满足 N+1</div>
+      <div><span class="box"></span>CLB 使用 TCP 透传，ACL 仅允许客户端固定出口 IP</div>
+      <div><span class="box"></span>ECS 443 仅允许 CLB/批准来源，未直接对全互联网开放</div>
+      <div><span class="box"></span>ECS 可解析并访问对象存储私网 endpoint</div>
+      <div><span class="box"></span>client host、证书、SNI、签名 region/service/endpoint family 已核对</div>
+      <div><span class="box"></span>对象存储主体、桶/对象资源和来源 IP 策略已在控制台保存验证</div>
+      <div><span class="box"></span>nginx 使用非变量 upstream，stream 模块、nofile、sysctl、logrotate 已生效</div>
+      <div><span class="box"></span>监控告警、日志采集、变更回滚和应急操作已演练</div>
+      <div><span class="box"></span>使用客户真实 SDK/CLI 完成 PUT/GET/HEAD/Multipart 与完整性验证</div>
+      <div><span class="box"></span>容量压测达到峰值需求并保留冗余</div>
     </div>
-  </div>
-</section>
 
-<section id="docs">
-  <div class="wrap">
-    <div class="sec-head">
-      <div class="sec-label">Documentation</div>
-      <h2>Go deeper</h2>
-    </div>
-    <div class="grid g3">
-      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/CONFIGURATION.md">
-        <h3 class="title" style="color:var(--fg)">Configuration reference →</h3>
-        <p>Every variable, its default, precedence rules, legacy aliases, and worked examples for TOS, AWS and co-located hosts.</p>
+    <div class="grid g3" style="margin-top:26px">
+      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/DESIGN.zh-CN.md">
+        <h3>完整生产方案 →</h3>
+        <p>九章全文：安全边界、TOS 桶策略示例、厂商兼容性、验证记录与准入清单。</p>
       </a>
-      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/OPERATIONS.md">
-        <h3 class="title" style="color:var(--fg)">Operations runbook →</h3>
-        <p>Daily checks, alert thresholds, adding and draining nodes, endpoint changes, capacity, change management, emergencies.</p>
+      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/CONFIGURATION.md">
+        <h3>配置参考 →</h3>
+        <p>每个环境变量的默认值、优先级、遗留别名，以及 TOS / AWS / 混部三种范例。</p>
       </a>
       <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/TROUBLESHOOTING.md">
-        <h3 class="title" style="color:var(--fg)">Troubleshooting →</h3>
-        <p>The 5-second reset, PROXY protocol mismatch, certificate/SNI failures, egress lockout, 403s, and manual rollback.</p>
-      </a>
-      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/SECURITY.md">
-        <h3 class="title" style="color:var(--fg)">Security policy →</h3>
-        <p>Threat model, per-layer controls, known operational risks, secret hygiene, and how to report a vulnerability.</p>
-      </a>
-      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/DESIGN.zh-CN.md">
-        <h3 class="title" style="color:var(--fg)">完整生产方案（中文）→</h3>
-        <p>安全边界、TOS 桶策略示例、厂商兼容性、真实验证结果与生产准入清单。</p>
-      </a>
-      <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/README.zh-CN.md">
-        <h3 class="title" style="color:var(--fg)">中文说明文档 →</h3>
-        <p>与英文 README 对照的完整中文版：快速开始、一键运维、安全模型与已知限制。</p>
+        <h3>故障排查 →</h3>
+        <p>5 秒重置、PROXY protocol 不匹配、证书/SNI 失败、出向锁死、403 与手动回滚。</p>
       </a>
     </div>
   </div>
@@ -642,12 +728,12 @@ sudo bash scripts/ops_l4_proxy.sh unlock-egress CONFIG=config.env</pre>
 
 <footer>
   <div class="wrap foot-in">
-    <div>Apache-2.0 licensed. Compatibility is TCP/TLS data-plane compatibility — always validate go-live with your real SDK.</div>
+    <div>Apache-2.0 · 兼容性指 TCP/TLS 数据面兼容，上线前请用真实 SDK 验证</div>
     <div class="foot-links">
       <a href="https://github.com/scott987-cmd/s3-l4-proxy">GitHub</a>
-      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/CHANGELOG.md">Changelog</a>
-      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/CONTRIBUTING.md">Contributing</a>
-      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/LICENSE">License</a>
+      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/README.zh-CN.md">中文 README</a>
+      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/SECURITY.md">安全策略</a>
+      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/CHANGELOG.md">更新日志</a>
     </div>
   </div>
 </footer>
@@ -664,21 +750,6 @@ sudo bash scripts/ops_l4_proxy.sh unlock-egress CONFIG=config.env</pre>
     var next=isDark?'light':'dark';
     root.setAttribute('data-theme',next);
     try{localStorage.setItem('theme',next)}catch(e){}
-  });
-
-  document.querySelectorAll('.copy').forEach(function(b){
-    b.addEventListener('click',function(){
-      var pre=b.closest('.code').querySelector('pre');
-      var text=pre.innerText.split('\n').filter(function(l){return l.trim().indexOf('#')!==0}).join('\n').trim();
-      var done=function(){b.textContent='Copied';b.classList.add('done');
-        setTimeout(function(){b.textContent='Copy';b.classList.remove('done')},1600)};
-      if(navigator.clipboard&&navigator.clipboard.writeText){
-        navigator.clipboard.writeText(text).then(done,function(){})
-      }else{
-        var t=document.createElement('textarea');t.value=text;document.body.appendChild(t);
-        t.select();try{document.execCommand('copy');done()}catch(e){}document.body.removeChild(t);
-      }
-    });
   });
 })();
 </script>

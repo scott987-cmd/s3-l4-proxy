@@ -13,7 +13,7 @@ Usage:
 Runs production acceptance checks:
   1. node health and nginx stream config
   2. local ECS passthrough to the private S3-compatible backend
-  3. optional CLB diagnostics when CLB_IP/EIP is configured
+  3. optional load balancer diagnostics when LB_IP is configured
   4. optional S3 PUT/GET/MD5 speed test when RUN_SPEED=1 and AK/SK are set
 USAGE
 }
@@ -38,7 +38,7 @@ S3_BACKEND_HOST="${S3_BACKEND_HOST:-${TOS_ENDPOINT:-tos-s3-${S3_REGION}.ivolces.
 S3_BACKEND_PORT="${S3_BACKEND_PORT:-443}"
 S3_CLIENT_HOST="${S3_CLIENT_HOST:-${VHOST:-}}"
 LISTEN_PORT="${LISTEN_PORT:-443}"
-CLB_IP="${CLB_IP:-${EIP:-}}"
+CLB_IP="${LB_IP:-${CLB_IP:-${EIP:-}}}"
 S3_ACCESS_KEY="${S3_ACCESS_KEY:-${TOS_AK:-${AK:-}}}"
 S3_SECRET_KEY="${S3_SECRET_KEY:-${TOS_SK:-${SK:-}}}"
 S3_SESSION_TOKEN="${S3_SESSION_TOKEN:-}"
@@ -73,12 +73,12 @@ case "$code" in
   *) bad "local passthrough failed: HTTP $code" ;;
 esac
 
-step "3. CLB diagnostics"
+step "3. Load balancer diagnostics"
 if [ -n "$CLB_IP" ]; then
   CLB_IP="$CLB_IP" S3_CLIENT_HOST="$S3_CLIENT_HOST" S3_BACKEND_HOST="$S3_BACKEND_HOST" S3_BACKEND_PORT="$S3_BACKEND_PORT" \
-    bash "$ROOT/scripts/diag_clb_l4.sh" || warn "CLB diagnostic returned non-zero"
+    bash "$ROOT/scripts/diag_clb_l4.sh" || warn "load balancer diagnostic returned non-zero"
 else
-  warn "CLB_IP/EIP not configured; skip CLB diagnostics"
+  warn "LB_IP not configured; skip load balancer diagnostics"
 fi
 
 step "4. Optional S3 speed test"
@@ -89,7 +89,7 @@ if [ "$RUN_SPEED" = "1" ]; then
       bash "$ROOT/scripts/speed_test_l4.sh"
     ok "speed test passed"
   else
-    bad "RUN_SPEED=1 requires CLB_IP/EIP, S3_CLIENT_HOST, and S3_ACCESS_KEY/S3_SECRET_KEY"
+    bad "RUN_SPEED=1 requires LB_IP, S3_CLIENT_HOST, and S3_ACCESS_KEY/S3_SECRET_KEY"
   fi
 else
   warn "RUN_SPEED!=1; skip S3 PUT/GET speed test"

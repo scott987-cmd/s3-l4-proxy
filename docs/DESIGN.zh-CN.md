@@ -1,15 +1,15 @@
 # 通用 S3 四层代理（L4 TCP 透传）生产方案
 
-> **方案结论：** 使用四层 CLB TCP 443 透传与 nginx stream，将 S3 客户端流量转发到客户网络中的 S3-compatible 对象存储私网 endpoint。代理不终结 TLS、不修改 HTTP/S3 请求、不保存对象存储凭证，客户端到对象存储保持端到端加密和认证签名保真。
+> **方案结论：** 使用公网负载均衡 TCP 443 透传与 nginx stream，将 S3 客户端流量转发到客户网络中的 S3-compatible 对象存储私网 endpoint。代理不终结 TLS、不修改 HTTP/S3 请求、不保存对象存储凭证，客户端到对象存储保持端到端加密和认证签名保真。
 
 ## 一、方案定位
 
-本方案用于「SaaS 侧通过互联网点对点访问客户私有对象存储」的场景。SaaS 机房通过固定公网出口访问客户 CLB，CLB 将 TCP 443 流量分发到客户 ECS 上的 nginx stream，ECS 再通过客户内网访问对象存储私网 endpoint。
+本方案用于「SaaS 侧通过互联网点对点访问客户私有对象存储」的场景。SaaS 机房通过固定公网出口访问客户负载均衡，负载均衡将 TCP 443 流量分发到客户 ECS 上的 nginx stream，ECS 再通过客户内网访问对象存储私网 endpoint。
 
 ```mermaid
 flowchart LR
     F[S3 客户端<br>TLS + 对象存储认证签名]
-    C[四层 CLB<br>TCP 443 透传<br>ACL 白名单]
+    C[公网负载均衡<br>TCP 443 透传<br>ACL 白名单]
     N1[ECS-A<br>nginx stream :443]
     N2[ECS-B<br>nginx stream :443]
     S[S3-compatible 对象存储<br>私网 endpoint :443]
@@ -25,7 +25,7 @@ flowchart LR
 
 ### 1.1 核心特征
 
-- **端到端 TLS：** CLB 和 nginx 均不解密，代理主机不部署对象存储证书或私钥。
+- **端到端 TLS：** 负载均衡和 nginx 均不解密，代理主机不部署对象存储证书或私钥。
 - **认证保真：** Host、SNI、path、query、Authorization、请求体及签名头保持原样。
 - **无状态扩展：** nginx stream 不保存会话状态，可通过增加 ECS 横向扩容。
 - **通用 S3 数据面：** 网络层不绑定具体厂商；厂商兼容性由 endpoint、证书、寻址模式和认证协议决定。
@@ -36,19 +36,19 @@ flowchart LR
 
 **稳定性：故障面小到可以穷举。** 不持证书就没有证书过期与轮换引发的故障；不持凭证就没有密钥失效类故障；无会话状态则单节点异常只需被健康检查摘除，连接重建即可恢复。固定 upstream 消除了变量式 `proxy_pass` 导致的周期性连接重置，跨可用区 N+1 与失败自动回滚兜住剩余风险。
 
-**人力：部署一条命令，日常一条命令。** 部署、巡检、验收、运维各一条命令，`health` 的退出码可直接接入监控。证书轮换零动作、密钥轮换零动作、后端 DNS 变更由定时器自动跟进、扩容只是把同一份配置装到新节点再加进 CLB。
+**人力：部署一条命令，日常一条命令。** 部署、巡检、验收、运维各一条命令，`health` 的退出码可直接接入监控。证书轮换零动作、密钥轮换零动作、后端 DNS 变更由定时器自动跟进、扩容只是把同一份配置装到新节点再加进负载均衡。
 
-**成本：全开源，无授权费用。** 数据面只依赖发行版官方仓库的 nginx 与 `ngx_stream_module`：无闭源组件、无 license 费用、无按量计费的中间件、无厂商锁定。全部资源开销就是两台 ECS 与一个四层 CLB。
+**成本：全开源，无授权费用。** 数据面只依赖发行版官方仓库的 nginx 与 `ngx_stream_module`：无闭源组件、无 license 费用、无按量计费的中间件、无厂商锁定。全部资源开销就是两台 ECS 与一个公网负载均衡。
 
 ## 二、使用前提与不适用场景
 
 ### 2.1 使用前提
 
 1. ECS 能通过客户 DNS 解析并访问 `S3_BACKEND_HOST:S3_BACKEND_PORT`，生产优先使用对象存储私网 endpoint。
-2. 客户端使用 `S3_CLIENT_HOST` 完成 TLS SNI 与请求签名，同时由正式 DNS、私有 DNS 或受控解析将该 hostname 路由到 CLB。
+2. 客户端使用 `S3_CLIENT_HOST` 完成 TLS SNI 与请求签名，同时由正式 DNS、私有 DNS 或受控解析将该 hostname 路由到负载均衡。
 3. 对象存储返回的证书覆盖 `S3_CLIENT_HOST`，或厂商提供等价的 endpoint/SNI 组合。
 4. 客户端产生的认证协议被目标 endpoint 接受；region、service 和 endpoint family 必须匹配。
-5. CLB 使用 TCP 四层监听，任何中间设备都不修改 TLS 或应用层请求。
+5. 负载均衡使用 TCP 四层监听，任何中间设备都不修改 TLS 或应用层请求。
 6. 生产至少两台跨可用区 ECS，配置 TCP 健康检查和 N+1 容量冗余。
 
 ### 2.2 不适用场景
@@ -58,7 +58,7 @@ flowchart LR
 - 需要 HTTP WAF、Header/Body 检查、对象级限流、租户鉴权、对象级审计或内容扫描。
 - 客户端 hostname 不被后端证书覆盖，且无法建立兼容的 endpoint/SNI 关系。
 - 客户端无法生成目标对象存储要求的认证协议。
-- 无法配置 CLB ACL、安全组白名单和多后端高可用，只能裸露单台 ECS 公网地址。
+- 无法配置负载均衡 ACL、安全组白名单和多后端高可用，只能裸露单台 ECS 公网地址。
 
 ## 三、安全设计
 
@@ -67,8 +67,8 @@ flowchart LR
 | 层级 | 控制点 | 生产要求 |
 | --- | --- | --- |
 | 数据层 | 客户端侧数据加密 | 敏感数据出客户端机房前使用客户 KMS 加密，代理与存储侧只接触密文。 |
-| 传输层 | 端到端 TLS | CLB 与 nginx 不终结 TLS，不保存证书和私钥。 |
-| 接入层 | CLB ACL 与安全组 | 只放行客户端固定出口 IP；ECS 443 只接受 CLB/批准来源。 |
+| 传输层 | 端到端 TLS | 负载均衡与 nginx 不终结 TLS，不保存证书和私钥。 |
+| 接入层 | 负载均衡 ACL 与安全组 | 只放行客户端固定出口 IP；ECS 443 只接受负载均衡/批准来源。 |
 | 代理层 | 主机与出向收敛 | 专用主机只监听 443/22；出向仅允许 DNS、运维依赖和对象存储私网 endpoint。 |
 | 存储层 | 最小权限与来源限制 | 专用子账号/角色只授权目标桶必要动作；桶策略限制代理实际来源地址。 |
 
@@ -80,7 +80,7 @@ flowchart LR
 
 ### 3.3 PROXY protocol
 
-仅当 CLB 监听明确启用 PROXY protocol 时，nginx 才设置 `ENABLE_PROXY_PROTOCOL=1`。两端配置不一致会导致普通 TLS 客户端无法连接。默认关闭。
+仅当负载均衡监听明确启用 PROXY protocol 时，nginx 才设置 `ENABLE_PROXY_PROTOCOL=1`。两端配置不一致会导致普通 TLS 客户端无法连接。默认关闭。
 
 ### 3.4 TOS 桶策略示例（供应商特定）
 
@@ -171,7 +171,7 @@ TOS Bucket Policy：桶级与对象级权限拆分
 
 ```bash
 cp config.example.env config.env
-# 填写 S3_BACKEND_HOST / S3_BACKEND_PORT / S3_CLIENT_HOST / S3_REGION / CLB_IP
+# 填写 S3_BACKEND_HOST / S3_BACKEND_PORT / S3_CLIENT_HOST / S3_REGION / LB_IP
 sudo bash scripts/install_l4_proxy.sh CONFIG=config.env
 ```
 
@@ -203,16 +203,16 @@ bash scripts/ops_l4_proxy.sh conns CONFIG=config.env
 
 ### 6.1 高可用与容量
 
-- 至少两台跨可用区 ECS 挂同一四层 CLB。
-- CLB 使用 TCP 业务端口健康检查，建议间隔 5 秒、超时 3 秒、健康/不健康阈值 3 次。
+- 至少两台跨可用区 ECS 挂同一公网负载均衡。
+- 负载均衡使用 TCP 业务端口健康检查，建议间隔 5 秒、超时 3 秒、健康/不健康阈值 3 次。
 - 容量按峰值带宽、并发连接和单机网卡能力规划，预留 N+1 冗余。
-- 新增 ECS 使用同一配置加入 CLB 即可，无需迁移代理状态。
+- 新增 ECS 使用同一配置加入负载均衡即可，无需迁移代理状态。
 
 ### 6.2 可观测性
 
 | 维度 | 指标 | 建议告警 |
 | --- | --- | --- |
-| 存活 | nginx、443 监听、CLB 健康后端数 | 任一节点不可用或健康后端不足 N+1 |
+| 存活 | nginx、443 监听、负载均衡健康后端数 | 任一节点不可用或健康后端不足 N+1 |
 | 连接 | ESTABLISHED、TIME_WAIT、连接失败 | 连接数超过设计容量 80% |
 | 吞吐 | 网卡 in/out bps、stream bytes | 持续逼近实例带宽 80% |
 | 时延 | upstream_connect_time、session_time | 连接 P99 超过容量基线 |
@@ -234,7 +234,7 @@ bash scripts/ops_l4_proxy.sh conns CONFIG=config.env
 在重装后的 CentOS Stream 9 ECS 上从压缩包解压执行一键部署：
 
 - ECS 公网地址：`<ECS_PUBLIC_IP>`；私网地址：`<ECS_PRIVATE_IP>`。
-- 公网 CLB EIP：`<CLB_EIP>`。
+- 公网负载均衡 EIP：`<负载均衡_EIP>`。
 - nginx 1.20.1 + 动态 stream 模块。
 - 只监听业务 443 与 SSH 22。
 - 巡检：`PASS=20 WARN=1 FAIL=0`。唯一 WARN 是按安全默认未启用出向锁定。
@@ -244,16 +244,16 @@ bash scripts/ops_l4_proxy.sh conns CONFIG=config.env
 
 - ECS 解析并访问 TOS 私网 endpoint `tos-s3-cn-beijing.ivolces.com:443` 成功。
 - ECS 本机经 `127.0.0.1:443` 穿透 nginx 到对象存储，TLS 成功并返回上游 HTTP 403，证明代理未终结 TLS。
-- 公网经 CLB EIP 真实 S3 验证：1MB PUT=200、GET=200、MD5 一致。
+- 公网经负载均衡 EIP 真实 S3 验证：1MB PUT=200、GET=200、MD5 一致。
 - 最终复测 PUT 4.40 MB/s、GET 5.00 MB/s；该小对象结果用于功能验证，不作为容量基线。
 - 历史大对象实测 100MB/500MB 单连接约 78–98 MB/s，瓶颈接近测试 ECS 网卡上限。
 - DELETE=403 是测试凭证未授予删除权限，符合最小权限设计。
 
 ## 八、生产准入清单
 
-- [ ] 至少两台跨可用区 ECS，CLB 健康后端满足 N+1
-- [ ] CLB 使用 TCP 透传，ACL 仅允许客户端固定出口 IP
-- [ ] ECS 443 仅允许 CLB/批准来源，未直接对全互联网开放
+- [ ] 至少两台跨可用区 ECS，负载均衡健康后端满足 N+1
+- [ ] 负载均衡使用 TCP 透传，ACL 仅允许客户端固定出口 IP
+- [ ] ECS 443 仅允许负载均衡/批准来源，未直接对全互联网开放
 - [ ] ECS 可解析并访问对象存储私网 endpoint
 - [ ] S3_CLIENT_HOST、证书、SNI、签名 region/service/endpoint family 已核对
 - [ ] 对象存储主体、桶/对象资源和来源 IP 策略已在控制台保存验证

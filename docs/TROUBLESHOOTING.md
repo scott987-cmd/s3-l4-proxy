@@ -4,7 +4,7 @@ Start here:
 
 ```bash
 bash scripts/verify_l4_proxy.sh -c config.env      # on the proxy node
-CLB_IP=<clb> S3_CLIENT_HOST=<host> bash scripts/diag_clb_l4.sh   # from a client
+LB_IP=<lb-ip> S3_CLIENT_HOST=<host> bash scripts/diag_clb_l4.sh   # from a client
 ```
 
 `verify_l4_proxy.sh` exits `0` all pass, `1` warnings, `2` failures.
@@ -27,23 +27,23 @@ grep -n 'proxy_pass' /etc/nginx/stream.d/s3-proxy.conf
 
 ## Every TLS client fails immediately after enabling PROXY protocol
 
-**Cause.** `ENABLE_PROXY_PROTOCOL` and the CLB listener disagree. If nginx expects the PROXY header and the CLB does not send it, nginx reads the TLS ClientHello as a malformed PROXY line — and vice versa.
+**Cause.** `ENABLE_PROXY_PROTOCOL` and the load balancer listener disagree. If nginx expects the PROXY header and the load balancer does not send it, nginx reads the TLS ClientHello as a malformed PROXY line — and vice versa.
 
-**Fix.** Both sides on, or both sides off. `verify_l4_proxy.sh` compares the rendered `listen` directive against `ENABLE_PROXY_PROTOCOL` and fails on a mismatch. When in doubt, set `ENABLE_PROXY_PROTOCOL=0` and disable it on the CLB listener.
+**Fix.** Both sides on, or both sides off. `verify_l4_proxy.sh` compares the rendered `listen` directive against `ENABLE_PROXY_PROTOCOL` and fails on a mismatch. When in doubt, set `ENABLE_PROXY_PROTOCOL=0` and disable it on the load balancer listener.
 
 ---
 
-## TLS handshake fails through the CLB but works on the node
+## TLS handshake fails through the load balancer but works on the node
 
 **Cause.** Certificate/SNI mismatch. The client signs and SNIs with `S3_CLIENT_HOST`, and the backend certificate must cover that name. L4 cannot fix this — nothing in the path can rewrite the handshake.
 
 **Check.**
 
 ```bash
-CLB_IP=<clb> S3_CLIENT_HOST=<host> bash scripts/diag_clb_l4.sh   # step 2 prints subject/issuer
+LB_IP=<lb-ip> S3_CLIENT_HOST=<host> bash scripts/diag_clb_l4.sh   # step 2 prints subject/issuer
 ```
 
-**Fix.** Use a client hostname the backend certificate covers, or ask the vendor for an equivalent endpoint/SNI pair. A CLB listener that terminates TLS also breaks this — the listener must be TCP.
+**Fix.** Use a client hostname the backend certificate covers, or ask the vendor for an equivalent endpoint/SNI pair. A load balancer listener that terminates TLS also breaks this — the listener must be TCP.
 
 ---
 
@@ -115,7 +115,7 @@ A 403 arriving at all is actually a *good* signal: TLS completed end to end and 
 - A small object measures round-trip behavior, not capacity. Use `SIZE_MB=100` or larger for any capacity claim.
 - Check the instance NIC ceiling first — single-connection throughput usually tops out there before nginx does.
 - Check `ss -s` and the stream log's `ct=` (upstream connect time) for backend-side latency.
-- Confirm you are not measuring through a saturated CLB shared with other services.
+- Confirm you are not measuring through a saturated load balancer shared with other services.
 
 ---
 

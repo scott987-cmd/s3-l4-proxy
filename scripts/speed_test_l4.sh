@@ -2,7 +2,7 @@
 set -euo pipefail
 
 S3_REGION="${S3_REGION:-${REGION:-cn-beijing}}"
-CLB_IP="${CLB_IP:-${EIP:-}}"
+CLB_IP="${LB_IP:-${CLB_IP:-${EIP:-}}}"
 SIZE_MB="${SIZE_MB:-100}"
 OBJECT_PREFIX="${OBJECT_PREFIX:-l4-proxy-test}"
 S3_ACCESS_KEY="${S3_ACCESS_KEY:-${TOS_AK:-${AK:-}}}"
@@ -16,11 +16,11 @@ SIGV4="${SIGV4:-${S3_SIGV4_PROVIDER}:${S3_REGION}:${S3_SERVICE}}"
 usage() {
   cat <<'USAGE'
 Usage:
-  S3_ACCESS_KEY=... S3_SECRET_KEY=... CLB_IP=<vip-or-eip> \\
+  S3_ACCESS_KEY=... S3_SECRET_KEY=... LB_IP=<lb-vip-or-eip> \\
   S3_CLIENT_HOST=<signed-host> S3_REGION=<region> \
     bash scripts/speed_test_l4.sh
 
-This test preserves the signed host and forces TCP to CLB with curl --resolve.
+This test preserves the signed host and forces TCP to the load balancer with curl --resolve.
 USAGE
 }
 
@@ -30,7 +30,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 [ -n "$S3_ACCESS_KEY" ] || { echo "[speed][ERR] set S3_ACCESS_KEY (or legacy TOS_AK/AK)"; exit 2; }
 [ -n "$S3_SECRET_KEY" ] || { echo "[speed][ERR] set S3_SECRET_KEY (or legacy TOS_SK/SK)"; exit 2; }
-[ -n "$CLB_IP" ] || { echo "[speed][ERR] set CLB_IP or EIP"; exit 2; }
+[ -n "$CLB_IP" ] || { echo "[speed][ERR] set LB_IP (or legacy CLB_IP/EIP)"; exit 2; }
 [ -n "$S3_CLIENT_HOST" ] || { echo "[speed][ERR] set S3_CLIENT_HOST or legacy VHOST"; exit 2; }
 [[ "$SIZE_MB" =~ ^[0-9]+$ ]] || { echo "[speed][ERR] SIZE_MB must be numeric"; exit 2; }
 
@@ -43,12 +43,12 @@ fi
 
 if command -v nc >/dev/null 2>&1; then
   nc -z -G 3 "$CLB_IP" 443 >/dev/null 2>&1 || nc -z -w 3 "$CLB_IP" 443 >/dev/null 2>&1 || {
-    echo "[speed][ERR] cannot connect to CLB ${CLB_IP}:443"
+    echo "[speed][ERR] cannot connect to load balancer ${CLB_IP}:443"
     exit 2
   }
 else
   curl -sk --connect-timeout 3 --max-time 5 -o /dev/null "https://${CLB_IP}:443/" >/dev/null 2>&1 || {
-    echo "[speed][ERR] cannot connect to CLB ${CLB_IP}:443"
+    echo "[speed][ERR] cannot connect to load balancer ${CLB_IP}:443"
     exit 2
   }
 fi
@@ -74,7 +74,7 @@ output_file="$tmpdir/curl.out"
 key="${OBJECT_PREFIX}-$(date +%s).bin"
 
 echo "== Target =="
-echo "  CLB_IP = $CLB_IP"
+echo "  LB_IP  = $CLB_IP"
 echo "  HOST   = $S3_CLIENT_HOST"
 echo "  KEY    = $key"
 
@@ -85,7 +85,7 @@ upload_md5="$(md5of "$upload_file")"
 echo "  md5(upload)=$upload_md5"
 
 echo
-echo "== PUT via CLB =="
+echo "== PUT via load balancer =="
 put_result="$(curl -s -o "$output_file" -w '%{http_code} %{time_total} %{speed_upload}' \
   -X PUT \
   --resolve "${S3_CLIENT_HOST}:443:${CLB_IP}" \
@@ -99,7 +99,7 @@ echo "  code=$put_code time=${put_time}s speed=$(human "$put_speed") (${put_spee
 [ "$put_code" = "200" ] || { echo "  body:"; sed -n '1,20p' "$output_file"; exit 1; }
 
 echo
-echo "== GET via CLB =="
+echo "== GET via load balancer =="
 get_result="$(curl -s -o "$download_file" -w '%{http_code} %{time_total} %{speed_download}' \
   --resolve "${S3_CLIENT_HOST}:443:${CLB_IP}" \
   "${auth_args[@]}" \

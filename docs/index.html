@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>通用 S3 四层代理（L4 TCP 透传）生产方案</title>
-<meta name="description" content="四层 CLB TCP 443 透传 + nginx stream，将 S3 客户端流量转发到 S3 兼容对象存储私网 endpoint。不终结 TLS、不改请求、不存凭证。架构、安全边界、部署流程与验证结果图解。">
+<meta name="description" content="公网负载均衡 TCP 443 透传 + nginx stream，将 S3 客户端流量转发到 S3 兼容对象存储私网 endpoint。不终结 TLS、不改请求、不存凭证。架构、安全边界、部署流程与验证结果图解。">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%80%3C/text%3E%3C/svg%3E">
 <style>
 :root{
@@ -258,6 +258,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
       <a href="#flow">部署流程</a>
       <a href="#rollback" class="hide-sm">变更回滚</a>
       <a href="#verify">验证结果</a>
+      <a href="#disclaimer" class="hide-sm">免责声明</a>
       <button class="icon-btn" id="theme" aria-label="切换深浅色主题" title="切换主题">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
       </button>
@@ -279,7 +280,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
     </div>
     <h1>不解密、不改写、<span class="grad">不持有凭证</span>的对象存储通路</h1>
     <p class="lede">
-      使用四层 CLB TCP 443 透传与 nginx stream，把 S3 客户端流量转发到客户网络中的
+      使用公网负载均衡 TCP 443 透传与 nginx stream，把 S3 客户端流量转发到客户网络中的
       <b>S3 兼容对象存储私网 endpoint</b>。代理不终结 TLS、不修改 HTTP/S3 请求、不保存对象存储凭证——
       客户端到对象存储的<b>加密与认证签名保真是端到端的</b>。
       转发路径短，性能接近网卡上限；没有证书、凭证与会话状态需要照看，日常人力投入趋近于零；
@@ -306,11 +307,11 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
     <div class="sec-head">
       <div class="sec-label">一、方案定位</div>
       <h2>四段链路，没有一段理解 S3 语义</h2>
-      <p>SaaS 机房通过固定公网出口访问客户 CLB，CLB 将 TCP 443 分发到客户 ECS 上的 nginx stream，ECS 再经客户内网访问对象存储私网 endpoint。全链路只搬运字节。</p>
+      <p>SaaS 机房通过固定公网出口访问客户负载均衡，负载均衡将 TCP 443 分发到客户 ECS 上的 nginx stream，ECS 再经客户内网访问对象存储私网 endpoint。全链路只搬运字节。</p>
     </div>
 
     <figure class="fig" style="margin:0">
-      <svg class="d" viewBox="0 0 900 300" role="img" aria-label="S3 客户端经公网 TCP 443 到四层 CLB，CLB 负载分担到两台 ECS 上的 nginx stream，再经客户内网转发到对象存储私网 endpoint；TLS 与签名端到端保真。">
+      <svg class="d" viewBox="0 0 900 300" role="img" aria-label="S3 客户端经公网 TCP 443 到公网负载均衡，负载均衡负载分担到两台 ECS 上的 nginx stream，再经客户内网转发到对象存储私网 endpoint；TLS 与签名端到端保真。">
         <defs>
           <marker id="ar" markerWidth="9" markerHeight="9" refX="7.5" refY="3.2" orient="auto">
             <path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--fg-faint)"/>
@@ -339,7 +340,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
         <text class="dg-sub" x="85" y="165" text-anchor="middle">TLS + 签名</text>
 
         <rect class="dg-box" x="252" y="114" width="102" height="76" rx="11"/>
-        <text class="dg-label" x="303" y="141" text-anchor="middle">四层 CLB</text>
+        <text class="dg-label" x="303" y="141" text-anchor="middle">公网负载均衡</text>
         <text class="dg-cn" x="303" y="159" text-anchor="middle">TCP 透传</text>
         <text class="dg-cn" x="303" y="175" text-anchor="middle">ACL 白名单</text>
 
@@ -361,7 +362,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
         <text class="dg-cn" x="776" y="266" text-anchor="middle">看到的是代理的来源地址</text>
       </svg>
       <figcaption>
-        CLB 必须是 <strong>TCP</strong> 四层监听而非 HTTP 监听。nginx 使用固定 <code class="inl">upstream</code> 块而非变量式 <code class="inl">proxy_pass</code>——变量形式会走 nginx stream 运行时 resolver 路径，实测出现约 5 秒周期的连接重置。固定 upstream 的代价是 DNS 变更需 reload，由 systemd timer 每 5 分钟平滑刷新。
+        负载均衡必须是 <strong>TCP</strong> 四层监听而非 HTTP 监听。nginx 使用固定 <code class="inl">upstream</code> 块而非变量式 <code class="inl">proxy_pass</code>——变量形式会走 nginx stream 运行时 resolver 路径，实测出现约 5 秒周期的连接重置。固定 upstream 的代价是 DNS 变更需 reload，由 systemd timer 每 5 分钟平滑刷新。
       </figcaption>
     </figure>
 
@@ -369,7 +370,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
       <div class="card">
         <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
         <h3>端到端 TLS</h3>
-        <p>CLB 和 nginx 均不解密，代理主机不部署对象存储证书或私钥。Host、SNI、path、query、Authorization、请求体及签名头保持原样。</p>
+        <p>负载均衡和 nginx 均不解密，代理主机不部署对象存储证书或私钥。Host、SNI、path、query、Authorization、请求体及签名头保持原样。</p>
       </div>
       <div class="card">
         <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg></div>
@@ -398,17 +399,17 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
       <div class="card">
         <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></div>
         <h3>稳定性：故障面小到可以穷举</h3>
-        <p>不持证书就没有证书过期与轮换引发的故障；不持凭证就没有密钥失效类故障；无会话状态则单节点异常只需被 CLB 摘除，连接重建即可恢复。固定 upstream 消除了变量 resolver 路径导致的<b>周期性连接重置</b>；跨可用区 N+1 与失败自动回滚兜住剩余风险。</p>
+        <p>不持证书就没有证书过期与轮换引发的故障；不持凭证就没有密钥失效类故障；无会话状态则单节点异常只需被负载均衡摘除，连接重建即可恢复。固定 upstream 消除了变量 resolver 路径导致的<b>周期性连接重置</b>；跨可用区 N+1 与失败自动回滚兜住剩余风险。</p>
       </div>
       <div class="card">
         <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/><path d="M21 3v6h-6"/></svg></div>
         <h3>人力：部署一条命令，日常一条命令</h3>
-        <p>部署、巡检、验收、运维各一条命令，<code class="inl">health</code> 的退出码可直接接监控告警。证书轮换零动作、密钥轮换零动作、后端 DNS 变更由定时器自动跟进、扩容只是把同一份配置装到新节点再加进 CLB——<b>没有需要人盯着的日常操作</b>。</p>
+        <p>部署、巡检、验收、运维各一条命令，<code class="inl">health</code> 的退出码可直接接监控告警。证书轮换零动作、密钥轮换零动作、后端 DNS 变更由定时器自动跟进、扩容只是把同一份配置装到新节点再加进负载均衡——<b>没有需要人盯着的日常操作</b>。</p>
       </div>
       <div class="card">
         <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
         <h3>成本：全开源，无授权费用</h3>
-        <p>数据面只依赖 <b>nginx + ngx_stream_module</b>，来自发行版官方仓库，无闭源组件、无 license 费用、无按量计费的中间件、无厂商锁定。全部资源开销就是两台 ECS 与一个四层 CLB；不解密不解析，CPU 花在网络 I/O 上，普通规格实例即可承载。</p>
+        <p>数据面只依赖 <b>nginx + ngx_stream_module</b>，来自发行版官方仓库，无闭源组件、无 license 费用、无按量计费的中间件、无厂商锁定。全部资源开销就是两台 ECS 与一个公网负载均衡；不解密不解析，CPU 花在网络 I/O 上，普通规格实例即可承载。</p>
       </div>
     </div>
 
@@ -418,10 +419,10 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
         <h3>六项使用前提</h3>
         <ul class="ynlist" style="margin-top:12px">
           <li><span class="m ok">✓</span><span>ECS 能解析并访问 <code class="inl">S3_BACKEND_HOST:PORT</code>，生产优先私网 endpoint</span></li>
-          <li><span class="m ok">✓</span><span>客户端用 <code class="inl">S3_CLIENT_HOST</code> 完成 SNI 与签名，且解析指向 CLB</span></li>
+          <li><span class="m ok">✓</span><span>客户端用 <code class="inl">S3_CLIENT_HOST</code> 完成 SNI 与签名，且解析指向负载均衡</span></li>
           <li><span class="m ok">✓</span><span>对象存储证书覆盖该 hostname，或有等价 endpoint/SNI 组合</span></li>
           <li><span class="m ok">✓</span><span>认证协议被目标 endpoint 接受，region / service / endpoint family 匹配</span></li>
-          <li><span class="m ok">✓</span><span>CLB 为 TCP 四层监听，链路无设备改动 TLS 或应用层请求</span></li>
+          <li><span class="m ok">✓</span><span>负载均衡为 TCP 四层监听，链路无设备改动 TLS 或应用层请求</span></li>
           <li><span class="m ok">✓</span><span>至少两台跨可用区 ECS，配 TCP 健康检查与 N+1 冗余</span></li>
         </ul>
       </div>
@@ -434,7 +435,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
           <li><span class="m no">✗</span><span>必须<b>在代理层</b>实施 WAF、对象级限流、租户鉴权或内容扫描（对象存储侧的 IAM 与审计不受影响）</span></li>
           <li><span class="m no">✗</span><span>客户端 hostname 不被后端证书覆盖且无兼容组合</span></li>
           <li><span class="m no">✗</span><span>客户端无法生成目标对象存储要求的认证协议</span></li>
-          <li><span class="m no">✗</span><span>无法配置 CLB ACL 与多后端高可用，只能裸露单台 ECS 公网地址</span></li>
+          <li><span class="m no">✗</span><span>无法配置负载均衡 ACL 与多后端高可用，只能裸露单台 ECS 公网地址</span></li>
         </ul>
       </div>
     </div>
@@ -459,12 +460,12 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
       <div class="layer">
         <div class="li"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
         <div><div class="ln">传输层</div><div class="lc">端到端 TLS</div></div>
-        <div class="lr">CLB 与 nginx 不终结 TLS，不保存证书和私钥。</div>
+        <div class="lr">负载均衡与 nginx 不终结 TLS，不保存证书和私钥。</div>
       </div>
       <div class="layer">
         <div class="li"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
-        <div><div class="ln">接入层</div><div class="lc">CLB ACL 与安全组</div></div>
-        <div class="lr">只放行客户端固定出口 IP；ECS 443 只接受 CLB 或批准来源。</div>
+        <div><div class="ln">接入层</div><div class="lc">负载均衡 ACL 与安全组</div></div>
+        <div class="lr">只放行客户端固定出口 IP；ECS 443 只接受负载均衡或批准来源。</div>
       </div>
       <div class="layer">
         <div class="li"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="7" rx="2"/><rect x="2" y="13" width="20" height="7" rx="2"/><path d="M6 7.5h.01M6 16.5h.01"/></svg></div>
@@ -534,7 +535,7 @@ verify_l4_proxy.sh \
         <div class="fi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></div>
         <div class="fn">STEP 03</div>
         <h3>一键验收</h3>
-        <p>节点健康 + 本机穿透 + CLB 诊断，加 <code class="inl">RUN_SPEED=1</code> 走真实 PUT/GET/MD5。</p>
+        <p>节点健康 + 本机穿透 + 负载均衡诊断，加 <code class="inl">RUN_SPEED=1</code> 走真实 PUT/GET/MD5。</p>
         <code>S3_ACCESS_KEY=... \
 S3_SECRET_KEY=... \
 bash scripts/\
@@ -690,7 +691,7 @@ CONFIG=config.env</code>
         <ul class="ynlist" style="margin-top:12px">
           <li><span class="m ok">✓</span><span>ECS 解析并访问对象存储私网 endpoint 成功</span></li>
           <li><span class="m ok">✓</span><span>本机经 <code class="inl">127.0.0.1:443</code> 穿透 nginx，TLS 成功并返回上游 HTTP 403——证明代理未终结 TLS</span></li>
-          <li><span class="m ok">✓</span><span>公网经 CLB 真实 S3：1MB PUT=200、GET=200、MD5 一致</span></li>
+          <li><span class="m ok">✓</span><span>公网经负载均衡真实 S3：1MB PUT=200、GET=200、MD5 一致</span></li>
           <li><span class="m ok">✓</span><span><code class="inl">DELETE=403</code> 是测试凭证未授予删除权限，符合最小权限设计</span></li>
         </ul>
       </div>
@@ -712,9 +713,9 @@ CONFIG=config.env</code>
       <p>其中多项由 <code class="inl">verify_l4_proxy.sh</code> 自动检查，其余是只能由人做的决策。</p>
     </div>
     <div class="check">
-      <div><span class="box"></span>至少两台跨可用区 ECS，CLB 健康后端满足 N+1</div>
-      <div><span class="box"></span>CLB 使用 TCP 透传，ACL 仅允许客户端固定出口 IP</div>
-      <div><span class="box"></span>ECS 443 仅允许 CLB/批准来源，未直接对全互联网开放</div>
+      <div><span class="box"></span>至少两台跨可用区 ECS，负载均衡健康后端满足 N+1</div>
+      <div><span class="box"></span>负载均衡使用 TCP 透传，ACL 仅允许客户端固定出口 IP</div>
+      <div><span class="box"></span>ECS 443 仅允许负载均衡/批准来源，未直接对全互联网开放</div>
       <div><span class="box"></span>ECS 可解析并访问对象存储私网 endpoint</div>
       <div><span class="box"></span>client host、证书、SNI、签名 region/service/endpoint family 已核对</div>
       <div><span class="box"></span>对象存储主体、桶/对象资源和来源 IP 策略已在控制台保存验证</div>
@@ -741,15 +742,49 @@ CONFIG=config.env</code>
   </div>
 </section>
 
+<!-- ============ 免责声明 ============ -->
+<section id="disclaimer">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-label">免责声明</div>
+      <h2>采用前请先读这一段</h2>
+      <p>本项目以开源方式发布，按「现状」提供，不附带任何明示或默示的担保。</p>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <h3>性能数据不构成承诺</h3>
+        <p>本页的吞吐与巡检结果来自特定实例规格、网络条件与对象存储组合下的<b>一次实测</b>，仅用于说明方案可行性。它不代表你的环境能达到的性能，也不构成性能承诺、容量保证或 SLA——容量结论必须以你自己环境的压测为准。</p>
+      </div>
+      <div class="card">
+        <h3>会修改系统状态</h3>
+        <p>部署脚本会安装软件包，并修改 nginx 配置、systemd 限制、sysctl、日志轮转与防火墙规则。虽然有运行级备份与失败自动回滚，仍请先在<b>非生产环境</b>完整演练，确认具备变更授权并准备好回滚方案。</p>
+      </div>
+      <div class="card">
+        <h3>上线前必须自行验证</h3>
+        <p>厂商兼容性指的是 TCP/TLS <b>数据面</b>兼容，不代表不同厂商的认证协议天然互通。正式承载业务前，必须使用你自己的 SDK/CLI 完成 PUT、GET、HEAD、Multipart 与数据完整性验证。</p>
+      </div>
+      <div class="card">
+        <h3>安全合规与厂商关系</h3>
+        <p>该架构是否满足你所处行业与地区的安全、合规、数据保护及跨境传输要求，由使用者自行评估；文中安全建议属通用工程实践，<b>不构成法律或合规意见</b>。本项目与任何云服务商、对象存储厂商或负载均衡产品无隶属、赞助或背书关系，商标归各自所有者。</p>
+      </div>
+    </div>
+    <div class="note" style="margin-top:16px">
+      <span class="ni">!</span>
+      <div>在适用法律允许的最大范围内，作者与贡献者不对因使用或无法使用本项目而产生的任何直接、间接、偶然或后果性损失承担责任，且本项目不附带支持、维护或更新义务。完整条款见 <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/DISCLAIMER.md">DISCLAIMER.md</a>，并以 <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/LICENSE">Apache-2.0 LICENSE</a> 为准。</div>
+    </div>
+  </div>
+</section>
+
 </main>
 
 <footer>
   <div class="wrap foot-in">
-    <div>Apache-2.0 · 兼容性指 TCP/TLS 数据面兼容，上线前请用真实 SDK 验证</div>
+    <div>Apache-2.0 · 按「现状」提供，不附带任何担保 · 兼容性指 TCP/TLS 数据面兼容，上线前请用真实 SDK 验证</div>
     <div class="foot-links">
       <a href="https://github.com/scott987-cmd/s3-l4-proxy">GitHub</a>
-      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/README.zh-CN.md">中文 README</a>
+      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/README.md">中文 README</a>
       <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/SECURITY.md">安全策略</a>
+      <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/DISCLAIMER.md">免责声明</a>
       <a href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/CHANGELOG.md">更新日志</a>
     </div>
   </div>

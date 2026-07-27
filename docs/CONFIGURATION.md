@@ -27,13 +27,13 @@ Never commit `config.env` — `.gitignore` blocks it.
 | `S3_REGION` | `cn-beijing` | Region for SigV4 in the verification scripts. The proxy itself is region-agnostic. |
 | `S3_SERVICE` | `s3` | SigV4 service name for verification scripts. |
 | `S3_SIGV4_PROVIDER` | `aws:amz` | curl `--aws-sigv4` provider prefix. |
-| `CLB_IP` | *(empty)* | CLB VIP/EIP. Only used by client-side diagnostics and the speed test; the proxy never needs it. |
+| `LB_IP` | *(empty)* | load balancer VIP/EIP. Only used by client-side diagnostics and the speed test; the proxy never needs it. |
 
 ## Listener and nginx layout
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `LISTEN_PORT` | `443` | Port the nginx stream server listens on. Must match the CLB backend port and its health check. |
+| `LISTEN_PORT` | `443` | Port the nginx stream server listens on. Must match the load balancer backend port and its health check. |
 | `NGINX_MAIN` | `/etc/nginx/nginx.conf` | Path to the nginx main config. |
 | `NGINX_USER` | auto-detected | nginx worker user. Auto-detects `nginx`, then `www-data`; the run aborts if neither exists. |
 | `STREAM_DIR` | `/etc/nginx/stream.d` | Directory included from the `stream {}` block. |
@@ -41,7 +41,7 @@ Never commit `config.env` — `.gitignore` blocks it.
 | `LEGACY_CONF_PATH` | `$STREAM_DIR/tos-proxy.conf` | Older config path. If found and recognized as previously managed, it is renamed with a `.migrated.<timestamp>` suffix; if unrecognized, the run aborts rather than clobbering it. |
 | `MAIN_MODE` | `replace` | `replace` installs the known-good stream-only main config (after backup). `auto` only appends a `stream { include ... }` block, preserving existing HTTP config. |
 | `DEDICATED_PROXY_HOST` | `1` | `1` treats the host as proxy-only. Set to `0` together with `MAIN_MODE=auto` when co-locating with an existing nginx HTTP service. |
-| `ENABLE_PROXY_PROTOCOL` | `0` | Set to `1` **only** when the CLB listener also sends PROXY protocol. A mismatch breaks every plain TLS client. When enabled, the access log records `$proxy_protocol_addr` instead of `$remote_addr`. |
+| `ENABLE_PROXY_PROTOCOL` | `0` | Set to `1` **only** when the load balancer listener also sends PROXY protocol. A mismatch breaks every plain TLS client. When enabled, the access log records `$proxy_protocol_addr` instead of `$remote_addr`. |
 
 ## Installation behavior
 
@@ -71,7 +71,7 @@ Never commit `config.env` — `.gitignore` blocks it.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `RUN_SPEED` | `0` | `1` makes acceptance run a real PUT/GET/MD5 through the CLB. Requires `CLB_IP`, `S3_CLIENT_HOST` and credentials. |
+| `RUN_SPEED` | `0` | `1` makes acceptance run a real PUT/GET/MD5 through the load balancer. Requires `LB_IP`, `S3_CLIENT_HOST` and credentials. |
 | `SIZE_MB` | `100` | Test object size. The example config ships `100`; use a large object for any capacity claim. |
 | `OBJECT_PREFIX` | `l4-proxy-test` | Test object key prefix. |
 | `LOG_FILE` | `/var/log/nginx/s3-stream.log` | Log tailed by `ops_l4_proxy.sh logs`. |
@@ -102,7 +102,7 @@ Accepted for backward compatibility with earlier TOS-specific deployments. Prefe
 | --- | --- |
 | `TOS_ENDPOINT` | `S3_BACKEND_HOST` |
 | `REGION` | `S3_REGION` |
-| `EIP` | `CLB_IP` |
+| `EIP` | `LB_IP` |
 | `VHOST` | `S3_CLIENT_HOST` |
 | `TOS_AK`, `AK` | `S3_ACCESS_KEY` |
 | `TOS_SK`, `SK` | `S3_SECRET_KEY` |

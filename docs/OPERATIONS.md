@@ -16,7 +16,7 @@ bash scripts/ops_l4_proxy.sh conns  CONFIG=config.env    # connection states and
 
 | Dimension | Signal | Threshold |
 | --- | --- | --- |
-| Liveness | nginx active, `LISTEN_PORT` listening, healthy CLB backends | Any node down, or healthy backends below N+1 |
+| Liveness | nginx active, `LISTEN_PORT` listening, healthy load balancer backends | Any node down, or healthy backends below N+1 |
 | Connections | ESTABLISHED, TIME_WAIT, connect failures | Above 80% of designed capacity |
 | Throughput | NIC in/out bps, stream bytes | Sustained near 80% of instance bandwidth |
 | Latency | `ct=` (upstream connect time), `sess=` (session time) in the stream log | Connect P99 above the capacity baseline |
@@ -29,7 +29,7 @@ The stream access log is `/var/log/nginx/s3-stream.log`, rotated daily with 15 g
 $remote_addr [$time_local] $protocol $status sent=$bytes_sent recv=$bytes_received sess=$session_time up=$upstream_addr ct=$upstream_connect_time
 ```
 
-With `ENABLE_PROXY_PROTOCOL=1` the first field is `$proxy_protocol_addr` — the real client address instead of the CLB's.
+With `ENABLE_PROXY_PROTOCOL=1` the first field is `$proxy_protocol_addr` — the real client address instead of the load balancer's.
 
 ## Routine procedures
 
@@ -54,11 +54,11 @@ sudo bash scripts/install_l4_proxy.sh CONFIG=config.env
 bash scripts/verify_l4_proxy.sh -c config.env
 ```
 
-Then add it to the CLB backend group and wait for the health check to go green before counting it toward capacity.
+Then add it to the load balancer backend group and wait for the health check to go green before counting it toward capacity.
 
 ### Remove a node
 
-Drain at the CLB first (remove from the backend group, let connections finish — `proxy_timeout` is 600s, so long transfers need that much grace), then stop nginx.
+Drain at the load balancer first (remove from the backend group, let connections finish — `proxy_timeout` is 600s, so long transfers need that much grace), then stop nginx.
 
 ### Change the backend endpoint
 
@@ -68,7 +68,7 @@ sudo bash scripts/configure_l4_proxy.sh CONFIG=config.env
 bash scripts/verify_l4_proxy.sh -c config.env
 ```
 
-Do one node at a time and confirm CLB health between nodes. The script backs up and auto-rolls-back on failure.
+Do one node at a time and confirm load balancer health between nodes. The script backs up and auto-rolls-back on failure.
 
 ### Certificate rotation at the storage side
 
@@ -82,7 +82,7 @@ Nothing to do on the proxy — it holds no certificates and does not terminate T
 
 ```bash
 S3_ACCESS_KEY=... S3_SECRET_KEY=... SIZE_MB=500 \
-  CLB_IP=<clb> S3_CLIENT_HOST=<host> S3_REGION=<region> \
+  LB_IP=<lb-ip> S3_CLIENT_HOST=<host> S3_REGION=<region> \
   bash scripts/speed_test_l4.sh
 ```
 
@@ -91,7 +91,7 @@ S3_ACCESS_KEY=... S3_SECRET_KEY=... SIZE_MB=500 \
 1. Change `config.env` on one node.
 2. `sudo bash scripts/configure_l4_proxy.sh CONFIG=config.env` — backs up to `/var/backups/s3-l4-proxy/<timestamp>-<pid>/` before any write.
 3. `bash scripts/verify_l4_proxy.sh -c config.env`.
-4. Watch CLB health and the stream log for one interval.
+4. Watch load balancer health and the stream log for one interval.
 5. Repeat on the next node.
 
 Automatic rollback covers nginx config, stream config, systemd limits, logrotate, sysctl, the DNS timer, and iptables. Manual rollback is in [TROUBLESHOOTING.md](TROUBLESHOOTING.md#rolling-back-a-bad-change).
@@ -102,7 +102,7 @@ Automatic rollback covers nginx config, stream config, systemd limits, logrotate
 | --- | --- |
 | Egress lock cut off a dependency | `sudo bash scripts/ops_l4_proxy.sh unlock-egress CONFIG=config.env` — removes only the `S3_L4_EGRESS` chain |
 | nginx will not start | `nginx -t` for the reason, then restore from `/var/backups/s3-l4-proxy/` |
-| One node degraded | Remove from the CLB backend group; the remaining nodes absorb traffic (this is why N+1 matters) |
+| One node degraded | Remove from the load balancer backend group; the remaining nodes absorb traffic (this is why N+1 matters) |
 | Backend unreachable from one node | `bash scripts/ops_l4_proxy.sh upstream CONFIG=config.env` — DNS result plus an HTTPS probe with timing |
 | Suspected data-path problem | `bash scripts/acceptance_l4_proxy.sh CONFIG=config.env` — re-runs the full chain including local passthrough |
 

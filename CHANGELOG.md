@@ -7,11 +7,14 @@ All notable changes to this project are documented here. Format follows [Keep a 
 ### Fixed
 
 - `verify_l4_proxy.sh`: `-e` and `-p` were silently overridden when `-c config.env` also defined `S3_BACKEND_HOST` or `LISTEN_PORT`, because the config file was sourced after option parsing. Explicit flags now win over the config file, as the usage text always claimed.
-- `ops_l4_proxy.sh`: the `--help` text described `unlock-egress` as "Restore OUTPUT policy to ACCEPT and flush OUTPUT chain". The implementation never did that — it removes only the dedicated `S3_L4_EGRESS` chain and leaves existing `OUTPUT` rules alone. The help text now matches the (safe) behavior.
+- Non-standard frontends such as 8443 now use curl `--connect-to`, keeping the HTTPS URL, TLS SNI, and signed Host on standard port 443. Diagnostics, local verification, and signed object tests no longer rewrite identity semantics or hard-code the frontend port.
+- macOS delivery archives now suppress extended attributes, so Linux extraction is clean instead of emitting `LIBARCHIVE.xattr` warnings.
+- The deployment toolkit no longer reads or writes iptables rules. Firewall and cloud security-group policy are an explicit customer-managed boundary.
 
 ### Added
 
 - Continuous integration: script parsing, ShellCheck, executable-bit check, stream template rendering with a real `nginx -t`, guards against variable `proxy_pass` and TLS termination in the stream config, and a credential scan over the whole tree.
+- A non-load functional suite covering PUT, GET, checksum, HEAD, metadata, Range, zero-byte objects, ListObjectsV2, CopyObject, and cleanup DELETEs.
 - Documentation: configuration reference, operations runbook, troubleshooting guide, security policy, contributing guide, and a Chinese README.
 - Published documentation site under `docs/`, including an architecture diagram, a five-layer security boundary, a deploy/inspect/accept/operate flow and a change-and-rollback flowchart.
 - `DISCLAIMER.md`, covering warranty, performance figures, system-state changes, pre-production validation, security and compliance responsibility, and vendor non-affiliation. Summarised in both READMEs and on the documentation site.
@@ -23,6 +26,7 @@ All notable changes to this project are documented here. Format follows [Keep a 
 - The L4-versus-L7 comparison was removed from this solution's material. The design now argues its own case on performance, stability, operating effort and cost, and the security section states why the boundary is sufficient for most deployments rather than listing what it does not do.
 - No vendor default anywhere: `S3_BACKEND_HOST` was previously falling back to one vendor's endpoint, so an unset value meant silently connecting to a vendor the operator never named. It is now required, and the scripts fail with a clear message. The legacy `TOS_ENDPOINT` alias still works.
 - Third-party provenance is stated up front in both READMEs, on the documentation site and in `DISCLAIMER.md`: this is an independent project, not an official or endorsed offering of any vendor. The `LICENSE` copyright holder is now filled in.
+- Fresh-install validation now includes Alibaba Cloud Linux 4, nginx 1.30.2, an OSS private endpoint, public TCP 8443 passthrough, and 16 signed S3-compatible object checks.
 
 ## [1.0.0] — 2026-07-27
 

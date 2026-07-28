@@ -51,11 +51,21 @@ bash scripts/verify_l4_proxy.sh -c config.env
 
 ```bash
 S3_ACCESS_KEY=... S3_SECRET_KEY=... LB_IP=<lb-ip> \
-S3_CLIENT_HOST=<签名用的 host> S3_REGION=<region> \
-  bash scripts/speed_test_l4.sh
+LISTEN_PORT=<前端端口> S3_CLIENT_HOST=<签名用的 host> S3_REGION=<region> \
+  bash scripts/functional_test_l4.sh
 ```
 
-测试把 `S3_CLIENT_HOST` 同时作为 TLS SNI 和签名 host，只用 curl `--resolve` 把 TCP 强制指向负载均衡——证书校验与 host 签名语义都得以保留。
+测试把 `S3_CLIENT_HOST` 同时作为 TLS SNI 和签名 host，只用 curl `--connect-to` 把底层 TCP 强制指向 `LB_IP:LISTEN_PORT`。即使前端监听 8443，HTTPS URL、SNI 和签名 Host 仍保持标准 443，证书校验与签名语义不会被端口改写。
+
+需要做真实对象功能验收但不做压测时：
+
+```bash
+S3_ACCESS_KEY=... S3_SECRET_KEY=... \
+  bash scripts/acceptance_l4_proxy.sh CONFIG=config.env RUN_FUNCTIONAL=1
+```
+
+功能验收只使用小对象，覆盖 PUT、GET、校验和、HEAD、元数据、Range、
+空对象、ListObjectsV2、CopyObject 和清理 DELETE。
 
 ## 一键运维
 
@@ -66,9 +76,9 @@ sudo bash scripts/install_l4_proxy.sh CONFIG=config.env
 # 巡检（只读）
 bash scripts/verify_l4_proxy.sh -c config.env
 
-# 验收——加 RUN_SPEED=1 会经负载均衡做真实 PUT/GET/MD5
+# 验收——RUN_FUNCTIONAL=1 做小对象完整功能测试，不产生压测负载
 S3_ACCESS_KEY=... S3_SECRET_KEY=... \
-  bash scripts/acceptance_l4_proxy.sh CONFIG=config.env RUN_SPEED=1
+  bash scripts/acceptance_l4_proxy.sh CONFIG=config.env RUN_FUNCTIONAL=1
 
 # 日常运维
 bash scripts/ops_l4_proxy.sh status   CONFIG=config.env
@@ -77,9 +87,6 @@ sudo bash scripts/ops_l4_proxy.sh reload  CONFIG=config.env
 sudo bash scripts/ops_l4_proxy.sh restart CONFIG=config.env
 bash scripts/ops_l4_proxy.sh upstream CONFIG=config.env
 bash scripts/ops_l4_proxy.sh conns    CONFIG=config.env
-
-# 紧急解除出向锁定
-sudo bash scripts/ops_l4_proxy.sh unlock-egress CONFIG=config.env
 
 # 打交付包 -> dist/s3-l4-proxy.tgz
 bash scripts/package_l4_proxy.sh
@@ -122,20 +129,20 @@ bash scripts/package_l4_proxy.sh
 | 数据层 | 客户端侧加密 | 敏感数据出客户端机房前用客户 KMS 加密，代理与存储侧只接触密文。 |
 | 传输层 | 端到端 TLS | 负载均衡与 nginx 都不终结 TLS，代理机不存证书和私钥。 |
 | 接入层 | 负载均衡 ACL 与安全组 | 只放行客户端固定出口 IP；ECS 443 只接受负载均衡/批准来源。 |
-| 代理层 | 主机与出向收敛 | 专用主机只对外暴露业务端口 443；出向仅允许 DNS、运维依赖和存储私网 endpoint。 |
+| 代理层 | 主机与网络边界 | 专用主机只运行 stream 代理；安全组、防火墙和出向策略由客户平台团队按现场网络统一管理。 |
 | 存储层 | 最小权限与来源限制 | 专用子账号/角色只授权目标桶必要动作；桶策略绑定代理真实来源地址。 |
 
 - **对多数客户已经足够。** 鉴权与对象级审计的权威点本来就在对象存储自身——IAM 主体、桶策略、审计日志都在那一侧完整生效，代理层不重复实现并不等于能力缺失。反过来，任何在链路中间解密的做法都会新增一个同时持有明文与密钥的组件，也就多出一个必须防守、轮换、审计的位置。
 - **四层可见性边界。** 代理看不到加密后的 HTTP/S3 语义，因此不在代理侧记录 bucket、object key、access key 或请求动作，`nginx stream` 只记录来源、时长、字节数、状态和上游地址。对象级追溯取自客户端与对象存储审计日志；代理不重复采集，也就不引入新的数据留存面。
 - 生成的 stream 配置中**不含 `ssl`/`ssl_certificate` 指令**；一旦渲染出变量式 `proxy_pass`，`configure_l4_proxy.sh` 会直接让本次运行失败。
 - **PROXY protocol 默认关闭。** 只有负载均衡监听明确启用时才设 `ENABLE_PROXY_PROTOCOL=1`——两端不一致会让普通 TLS 客户端全部连不上。
-- **出向锁定默认关闭**，以免让有其他出网依赖的主机失联。启用时使用独立的 `S3_L4_EGRESS` 链，绝不清空既有 `OUTPUT` 规则，可用 `ops_l4_proxy.sh unlock-egress` 撤销。
+- **不自动修改防火墙。** 安装、配置、巡检和运维脚本均不写 iptables/nftables；安全组、主机防火墙和出向白名单由用户按现场标准配置。
 - **凭证不进仓库。** `config.example.env` 只有占位符，`.gitignore` 拦截 `config.env`，`package_l4_proxy.sh` 在密钥形态字符串或私钥进入交付包时让构建失败。验收脚本只从进程环境读 AK/SK——注意 `speed_test_l4.sh` 会把它们传给 `curl --aws-sigv4 --user`，在共享主机上会短暂出现在进程列表里，请使用专用最小权限测试凭证。
 
 ## 安装脚本做了什么
 
 - 处理 CentOS/RHEL 与 Debian/Ubuntu 上的 nginx 与动态 `stream` 模块。
-- 在改动任何东西**之前**，把 nginx 配置、systemd limits、sysctl、logrotate 和 iptables 备份到 `/var/backups/s3-l4-proxy/<时间戳>`；任一步骤或 `nginx -t` 失败即自动全量回滚。
+- 在改动任何东西**之前**，把 nginx 配置、systemd limits、sysctl、logrotate 和 DNS timer 备份到 `/var/backups/s3-l4-proxy/<时间戳>`；任一步骤或 `nginx -t` 失败即自动回滚这些托管项。
 - 设置 `worker_rlimit_nofile` / systemd `LimitNOFILE`（默认 65535）、网络 sysctl 基线、stream 访问日志与日志轮转。
 - 安装 `s3-l4-dns-reload.timer`，每 5 分钟平滑 reload 一次 nginx。
 

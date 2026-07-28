@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>通用 S3 四层代理（L4 TCP 透传）生产方案</title>
-<meta name="description" content="公网负载均衡 TCP 443 透传 + nginx stream，将 S3 客户端流量转发到 S3 兼容对象存储私网 endpoint。不终结 TLS、不改请求、不存凭证。架构、安全边界、部署流程与验证结果图解。">
+<meta name="description" content="公网 TCP 透传 + nginx stream，将 S3 客户端流量转发到 S3 兼容对象存储私网 endpoint。不终结 TLS、不改请求、不存凭证。含 8443 实测、架构、安全边界、一键部署与功能验收。">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%80%3C/text%3E%3C/svg%3E">
 <style>
 :root{
@@ -71,6 +71,13 @@ header.nav{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--b
   border-radius:9px;border:1px solid var(--line);background:var(--bg-card);color:var(--fg)!important}
 .nav-gh:hover{border-color:var(--fg-faint);text-decoration:none}
 @media(max-width:960px){.nav-links a.hide-sm{display:none}}
+@media(max-width:760px){
+  .nav-in{gap:10px}
+  .brand{font-size:14px;white-space:nowrap}
+  .nav-links{gap:8px}
+  .nav-links>a:not(.nav-gh){display:none}
+  .nav-gh{padding:7px 9px}
+}
 
 /* hero */
 .hero{padding:70px 0 52px;position:relative;overflow:hidden}
@@ -285,7 +292,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 54px;color:var(--fg-faint
     </div>
     <h1>不解密、不改写、<span class="grad">不持有凭证</span>的对象存储通路</h1>
     <p class="lede">
-      使用公网负载均衡 TCP 443 透传与 nginx stream，把 S3 客户端流量转发到客户网络中的
+      使用公网 TCP 透传与 nginx stream，把 S3 客户端流量转发到客户网络中的
       <b>S3 兼容对象存储私网 endpoint</b>。代理不终结 TLS、不修改 HTTP/S3 请求、不保存对象存储凭证——
       客户端到对象存储的<b>加密与认证签名保真是端到端的</b>。
       转发路径短，性能接近网卡上限；没有证书、凭证与会话状态需要照看，日常人力投入趋近于零；
@@ -538,18 +545,19 @@ verify_l4_proxy.sh \
         <div class="fi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></div>
         <div class="fn">STEP 03</div>
         <h3>一键验收</h3>
-        <p>节点健康 + 本机穿透 + 负载均衡诊断，加 <code class="inl">RUN_SPEED=1</code> 走真实 PUT/GET/MD5。</p>
+        <p>节点健康 + 本机穿透 + 公网诊断；<code class="inl">RUN_FUNCTIONAL=1</code> 使用小对象完成 16 项真实功能检查，不产生压测负载。</p>
         <code>S3_ACCESS_KEY=... \
 S3_SECRET_KEY=... \
 bash scripts/\
 acceptance_l4_proxy.sh \
-CONFIG=config.env RUN_SPEED=1</code>
+CONFIG=config.env \
+RUN_FUNCTIONAL=1</code>
       </div>
       <div class="fstep">
         <div class="fi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div>
         <div class="fn">STEP 04</div>
         <h3>一键运维</h3>
-        <p>状态、健康、reload、restart、上游探测、连接统计，以及紧急解除出向锁定。</p>
+        <p>状态、健康、reload、restart、上游探测与连接统计。防火墙和安全组始终由客户平台团队管理。</p>
         <code>bash scripts/ops_l4_proxy.sh \
 status|health|reload|\
 restart|upstream|conns \
@@ -617,12 +625,12 @@ CONFIG=config.env</code>
 
         <rect class="dg-box" x="710" y="133" width="172" height="50" rx="10"/>
         <text class="dg-cn" x="796" y="154" text-anchor="middle" style="font-size:11.5px">还原 nginx / systemd</text>
-        <text class="dg-cn" x="796" y="170" text-anchor="middle" style="font-size:11.5px">sysctl / 独立防火墙链</text>
+        <text class="dg-cn" x="796" y="170" text-anchor="middle" style="font-size:11.5px">sysctl / DNS timer</text>
 
-        <text class="dg-cn" x="450" y="212" text-anchor="middle">出向锁定默认关闭；启用前先确认 DNS、SSH、监控等必要依赖，且通过独立链实现，不覆盖企业已有规则</text>
+        <text class="dg-cn" x="450" y="212" text-anchor="middle">自动化不写 iptables/nftables；安全组、主机防火墙与出向策略由客户按现场标准配置</text>
       </svg>
       <figcaption>
-        备份覆盖 nginx 主配置、stream 配置、systemd limits、logrotate、sysctl 与 iptables。专用 <code class="inl">S3_L4_EGRESS</code> 防火墙链不清空企业已有 OUTPUT 规则，可用 <code class="inl">ops_l4_proxy.sh unlock-egress</code> 单独撤销。
+        备份与回滚覆盖 nginx 主配置、stream 配置、systemd limits、logrotate、sysctl 与 DNS timer。自动化明确不修改 iptables/nftables 或云安全组。
       </figcaption>
     </figure>
   </div>
@@ -645,16 +653,16 @@ CONFIG=config.env</code>
       <table>
         <thead><tr><th>对象存储</th><th>结论</th><th>校验重点</th></tr></thead>
         <tbody>
-          <tr><td>火山 TOS</td><td><span class="badge g">作者实测环境</span></td><td>使用 <code>tos-s3-*</code> endpoint family；service 为 <code>s3</code>。</td></tr>
+          <tr><td>火山 TOS</td><td><span class="badge g">历史实测</span></td><td>使用 <code>tos-s3-*</code> endpoint family；service 为 <code>s3</code>。</td></tr>
           <tr><td>AWS S3</td><td><span class="badge n">L4 数据面兼容</span></td><td>S3/VPC endpoint、region、service 与证书覆盖的 client host。</td></tr>
-          <tr><td>阿里 OSS</td><td><span class="badge n">TCP 透传兼容</span></td><td>确认客户端使用 OSS 支持的认证协议或兼容模式。</td></tr>
+          <tr><td>阿里 OSS</td><td><span class="badge g">当前实测</span></td><td>北京私网 endpoint，经公网 8443 透传完成 16 项签名对象测试。</td></tr>
           <tr><td>华为 OBS</td><td><span class="badge n">TCP 透传兼容</span></td><td>确认 endpoint、证书和签名算法一致。</td></tr>
           <tr><td>MinIO / Ceph RGW</td><td><span class="badge n">通常兼容</span></td><td>私有 CA、path-style/virtual-hosted 和 SigV4 配置。</td></tr>
         </tbody>
       </table>
     </div>
     <p style="margin:14px 4px 0;color:var(--fg-faint);font-size:13.3px;line-height:1.6">
-      表中「作者实测环境」仅表示作者恰好在该环境下做过端到端验证，<b>不代表本项目与该厂商存在任何合作、认证或背书关系</b>；其余厂商未做实测，结论来自数据面特性推导。所有产品名称与商标归各自所有者所有。
+      表中「当前实测 / 历史实测」仅表示作者在对应环境做过端到端验证，<b>不代表本项目与该厂商存在任何合作、认证或背书关系</b>；其余厂商未做实测，结论来自数据面特性推导。所有产品名称与商标归各自所有者所有。
     </p>
   </div>
 </section>
@@ -664,20 +672,20 @@ CONFIG=config.env</code>
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-label">七、真实验证结果</div>
-      <h2>重装后的 CentOS Stream 9 上从压缩包一键部署</h2>
-      <p>nginx 1.20.1 + 动态 stream 模块，对外只暴露业务端口 443，DNS reload timer 已启用。</p>
+      <h2>重装后的 Alibaba Cloud Linux 4 上从压缩包一键部署</h2>
+      <p>2026-07-28：nginx 1.30.2 + 动态 stream 模块，监听 0.0.0.0:8443，后端为阿里 OSS 北京私网 endpoint，DNS reload timer 已启用。</p>
     </div>
 
     <div class="stats">
       <div class="stat good">
         <div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>PASS 通过</div>
-        <div class="sv">20</div>
-        <div class="sd">服务、配置、上游穿透、安全基线与运维基线全部通过</div>
+        <div class="sv">21</div>
+        <div class="sd">服务、配置、上游穿透、运行基线与运维基线全部通过</div>
       </div>
-      <div class="stat warn">
+      <div class="stat zero">
         <div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 9v5M12 18h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>WARN 告警</div>
-        <div class="sv">1</div>
-        <div class="sd">唯一告警是按安全默认<b>未启用出向锁定</b>，属预期行为</div>
+        <div class="sv">0</div>
+        <div class="sd">防火墙为客户责任边界，自动化不修改、不误报</div>
       </div>
       <div class="stat zero">
         <div class="sl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>FAIL 失败</div>
@@ -688,29 +696,29 @@ CONFIG=config.env</code>
 
     <div class="grid g2">
       <div class="tp">
-        <div class="tp-row"><span class="tp-v">78–98</span><span class="tp-u">MB/s</span></div>
-        <p class="tp-cap">历史大对象实测（100MB / 500MB 单连接），瓶颈接近测试 ECS 网卡上限。</p>
+        <div class="tp-row"><span class="tp-v">16</span><span class="tp-u">项</span></div>
+        <p class="tp-cap">公网 8443 上的签名功能测试全部通过：小对象、元数据、Range、列举、复制与清理。</p>
         <div class="tp-track">
           <div class="tp-fill"></div>
-          <div class="tp-mark" style="left:78%"></div>
+          <div class="tp-mark" style="left:100%"></div>
         </div>
-        <div class="tp-scale"><span>0</span><span>测试实例网卡上限 ≈100 MB/s</span></div>
+        <div class="tp-scale"><span>0</span><span>16 / 16 PASS</span></div>
       </div>
       <div class="card">
         <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></div>
         <h3>业务链路验证</h3>
         <ul class="ynlist" style="margin-top:12px">
           <li><span class="m ok">✓</span><span>ECS 解析并访问对象存储私网 endpoint 成功</span></li>
-          <li><span class="m ok">✓</span><span>本机经 <code class="inl">127.0.0.1:443</code> 穿透 nginx，TLS 成功并返回上游 HTTP 403——证明代理未终结 TLS</span></li>
-          <li><span class="m ok">✓</span><span>公网经负载均衡真实 S3：1MB PUT=200、GET=200、MD5 一致</span></li>
-          <li><span class="m ok">✓</span><span><code class="inl">DELETE=403</code> 是测试凭证未授予删除权限，符合最小权限设计</span></li>
+          <li><span class="m ok">✓</span><span>本机经 <code class="inl">127.0.0.1:8443</code> 穿透 nginx，TLS 成功并返回上游 HTTP 403——证明代理未终结 TLS</span></li>
+          <li><span class="m ok">✓</span><span>公网 <code class="inl">39.96.69.255:8443</code> 的证书链与 SNI 校验成功；HTTPS URL 与签名 Host 仍保持标准 443</span></li>
+          <li><span class="m ok">✓</span><span>PUT / GET / checksum / HEAD / metadata / Range / 空对象 / List / Copy / DELETE 全部通过并完成清理</span></li>
         </ul>
       </div>
     </div>
 
     <div class="note" style="margin-top:16px">
       <span class="ni">!</span>
-      <div><b>小对象结果不作为容量基线。</b>最终复测 PUT 4.40 MB/s、GET 5.00 MB/s 是 1MB 对象的<b>功能验证</b>结果，衡量的是往返行为而非吞吐能力。任何容量结论都必须以大对象压测为准。</div>
+      <div><b>本轮按要求未做性能测试。</b>上述结果只证明四层方案的协议保真、证书/SNI、签名与对象功能完整，不构成吞吐、并发、容量或 SLA 承诺。</div>
     </div>
   </div>
 </section>
@@ -726,7 +734,7 @@ CONFIG=config.env</code>
     <div class="check">
       <div><span class="box"></span>至少两台跨可用区 ECS，负载均衡健康后端满足 N+1</div>
       <div><span class="box"></span>负载均衡使用 TCP 透传，ACL 仅允许客户端固定出口 IP</div>
-      <div><span class="box"></span>ECS 443 仅允许负载均衡/批准来源，未直接对全互联网开放</div>
+      <div><span class="box"></span>ECS 的 <code class="inl">LISTEN_PORT</code> 仅允许负载均衡/批准来源，未直接对全互联网开放</div>
       <div><span class="box"></span>ECS 可解析并访问对象存储私网 endpoint</div>
       <div><span class="box"></span>client host、证书、SNI、签名 region/service/endpoint family 已核对</div>
       <div><span class="box"></span>对象存储主体、桶/对象资源和来源 IP 策略已在控制台保存验证</div>
@@ -747,7 +755,7 @@ CONFIG=config.env</code>
       </a>
       <a class="card hoverable" href="https://github.com/scott987-cmd/s3-l4-proxy/blob/main/docs/TROUBLESHOOTING.md">
         <h3>故障排查 →</h3>
-        <p>5 秒重置、PROXY protocol 不匹配、证书/SNI 失败、出向锁死、403 与手动回滚。</p>
+        <p>5 秒重置、PROXY protocol 不匹配、证书/SNI 失败、私网不可达、403 与手动回滚。</p>
       </a>
     </div>
   </div>
@@ -768,7 +776,7 @@ CONFIG=config.env</code>
       </div>
       <div class="card">
         <h3>会修改系统状态</h3>
-        <p>部署脚本会安装软件包，并修改 nginx 配置、systemd 限制、sysctl、日志轮转与防火墙规则。虽然有运行级备份与失败自动回滚，仍请先在<b>非生产环境</b>完整演练，确认具备变更授权并准备好回滚方案。</p>
+        <p>部署脚本会安装软件包，并修改 nginx 配置、systemd 限制、sysctl 与日志轮转；不会修改 iptables/nftables 或云安全组。虽然有运行级备份与失败自动回滚，仍请先在<b>非生产环境</b>完整演练，确认具备变更授权并准备好回滚方案。</p>
       </div>
       <div class="card">
         <h3>上线前必须自行验证</h3>

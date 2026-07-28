@@ -12,6 +12,7 @@ S3_CLIENT_HOST="${S3_CLIENT_HOST:-${VHOST:-}}"
 S3_SERVICE="${S3_SERVICE:-s3}"
 S3_SIGV4_PROVIDER="${S3_SIGV4_PROVIDER:-aws:amz}"
 SIGV4="${SIGV4:-${S3_SIGV4_PROVIDER}:${S3_REGION}:${S3_SERVICE}}"
+LISTEN_PORT="${LISTEN_PORT:-443}"
 
 usage() {
   cat <<'USAGE'
@@ -20,7 +21,8 @@ Usage:
   S3_CLIENT_HOST=<signed-host> S3_REGION=<region> \
     bash scripts/speed_test_l4.sh
 
-This test preserves the signed host and forces TCP to the load balancer with curl --resolve.
+This test preserves the standard HTTPS URL, TLS SNI, and signed host while
+mapping only the TCP connection to LB_IP:LISTEN_PORT with curl --connect-to.
 USAGE
 }
 
@@ -33,6 +35,10 @@ fi
 [ -n "$CLB_IP" ] || { echo "[speed][ERR] set LB_IP (or legacy CLB_IP/EIP)"; exit 2; }
 [ -n "$S3_CLIENT_HOST" ] || { echo "[speed][ERR] set S3_CLIENT_HOST or legacy VHOST"; exit 2; }
 [[ "$SIZE_MB" =~ ^[0-9]+$ ]] || { echo "[speed][ERR] SIZE_MB must be numeric"; exit 2; }
+[[ "$LISTEN_PORT" =~ ^[0-9]+$ ]] && [ "$LISTEN_PORT" -ge 1 ] && [ "$LISTEN_PORT" -le 65535 ] || {
+  echo "[speed][ERR] LISTEN_PORT must be between 1 and 65535"
+  exit 2
+}
 
 command -v curl >/dev/null 2>&1 || { echo "[speed][ERR] curl not found"; exit 2; }
 
@@ -42,13 +48,15 @@ if [ -n "$S3_SESSION_TOKEN" ]; then
 fi
 
 if command -v nc >/dev/null 2>&1; then
-  nc -z -G 3 "$CLB_IP" 443 >/dev/null 2>&1 || nc -z -w 3 "$CLB_IP" 443 >/dev/null 2>&1 || {
-    echo "[speed][ERR] cannot connect to load balancer ${CLB_IP}:443"
+  nc -z -G 3 "$CLB_IP" "$LISTEN_PORT" >/dev/null 2>&1 || nc -z -w 3 "$CLB_IP" "$LISTEN_PORT" >/dev/null 2>&1 || {
+    echo "[speed][ERR] cannot connect to load balancer ${CLB_IP}:${LISTEN_PORT}"
     exit 2
   }
 else
-  curl -sk --connect-timeout 3 --max-time 5 -o /dev/null "https://${CLB_IP}:443/" >/dev/null 2>&1 || {
-    echo "[speed][ERR] cannot connect to load balancer ${CLB_IP}:443"
+  curl -sS --noproxy '*' --connect-timeout 3 --max-time 5 -o /dev/null \
+    --connect-to "${S3_CLIENT_HOST}:443:${CLB_IP}:${LISTEN_PORT}" \
+    "https://${S3_CLIENT_HOST}/" >/dev/null 2>&1 || {
+    echo "[speed][ERR] cannot complete TLS through ${CLB_IP}:${LISTEN_PORT}"
     exit 2
   }
 fi
@@ -75,6 +83,7 @@ key="${OBJECT_PREFIX}-$(date +%s).bin"
 
 echo "== Target =="
 echo "  LB_IP  = $CLB_IP"
+echo "  PORT   = $LISTEN_PORT"
 echo "  HOST   = $S3_CLIENT_HOST"
 echo "  KEY    = $key"
 
@@ -86,9 +95,9 @@ echo "  md5(upload)=$upload_md5"
 
 echo
 echo "== PUT via load balancer =="
-put_result="$(curl -s -o "$output_file" -w '%{http_code} %{time_total} %{speed_upload}' \
+put_result="$(curl -s --noproxy '*' -o "$output_file" -w '%{http_code} %{time_total} %{speed_upload}' \
   -X PUT \
-  --resolve "${S3_CLIENT_HOST}:443:${CLB_IP}" \
+  --connect-to "${S3_CLIENT_HOST}:443:${CLB_IP}:${LISTEN_PORT}" \
   "${auth_args[@]}" \
   --data-binary @"$upload_file" \
   "https://${S3_CLIENT_HOST}/${key}")"
@@ -100,8 +109,8 @@ echo "  code=$put_code time=${put_time}s speed=$(human "$put_speed") (${put_spee
 
 echo
 echo "== GET via load balancer =="
-get_result="$(curl -s -o "$download_file" -w '%{http_code} %{time_total} %{speed_download}' \
-  --resolve "${S3_CLIENT_HOST}:443:${CLB_IP}" \
+get_result="$(curl -s --noproxy '*' -o "$download_file" -w '%{http_code} %{time_total} %{speed_download}' \
+  --connect-to "${S3_CLIENT_HOST}:443:${CLB_IP}:${LISTEN_PORT}" \
   "${auth_args[@]}" \
   "https://${S3_CLIENT_HOST}/${key}")"
 get_code="$(printf '%s' "$get_result" | awk '{print $1}')"
@@ -120,9 +129,9 @@ fi
 
 echo
 echo "== DELETE cleanup =="
-delete_code="$(curl -s -o /dev/null -w '%{http_code}' \
+delete_code="$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}' \
   -X DELETE \
-  --resolve "${S3_CLIENT_HOST}:443:${CLB_IP}" \
+  --connect-to "${S3_CLIENT_HOST}:443:${CLB_IP}:${LISTEN_PORT}" \
   "${auth_args[@]}" \
   "https://${S3_CLIENT_HOST}/${key}")"
 echo "  code=$delete_code"

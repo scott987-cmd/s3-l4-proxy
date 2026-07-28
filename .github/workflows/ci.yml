@@ -73,6 +73,18 @@ jobs:
             exit 1
           fi
 
+      - name: Verify non-standard frontend port preserves HTTPS identity
+        run: |
+          grep -q -- '--connect-to' scripts/verify_l4_proxy.sh
+          grep -q -- '--connect-to' scripts/diag_clb_l4.sh
+          grep -q -- '--connect-to' scripts/speed_test_l4.sh
+          grep -q -- '--connect-to' scripts/functional_test_l4.sh
+          ! grep -q -- '--resolve' \
+            scripts/verify_l4_proxy.sh \
+            scripts/diag_clb_l4.sh \
+            scripts/functional_test_l4.sh \
+            scripts/speed_test_l4.sh
+
       - name: nginx -t against the rendered config
         run: |
           sudo mkdir -p /etc/nginx/stream.d

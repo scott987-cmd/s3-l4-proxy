@@ -51,11 +51,21 @@ From a client machine that can reach the load balancer VIP/EIP:
 
 ```bash
 S3_ACCESS_KEY=... S3_SECRET_KEY=... LB_IP=<lb-ip> \
-S3_CLIENT_HOST=<signed-host> S3_REGION=<region> \
-  bash scripts/speed_test_l4.sh
+LISTEN_PORT=<frontend-port> S3_CLIENT_HOST=<signed-host> S3_REGION=<region> \
+  bash scripts/functional_test_l4.sh
 ```
 
-The test keeps `S3_CLIENT_HOST` as both the TLS SNI and the signed host, and uses curl `--resolve` only to force TCP to the load balancer — certificate validation and host-signing semantics are preserved.
+The test keeps `S3_CLIENT_HOST` as both the TLS SNI and the signed host, and uses curl `--connect-to` only to map the underlying TCP connection to `LB_IP:LISTEN_PORT`. Even when the frontend listens on 8443, the HTTPS URL, SNI, and signed Host remain on standard port 443, preserving certificate validation and signing semantics.
+
+To run real object checks without a performance test:
+
+```bash
+S3_ACCESS_KEY=... S3_SECRET_KEY=... \
+  bash scripts/acceptance_l4_proxy.sh CONFIG=config.env RUN_FUNCTIONAL=1
+```
+
+The small-object suite covers PUT, GET, checksum comparison, HEAD, metadata,
+Range GET, zero-byte objects, ListObjectsV2, CopyObject, and cleanup DELETEs.
 
 ## One-command operations
 
@@ -66,9 +76,9 @@ sudo bash scripts/install_l4_proxy.sh CONFIG=config.env
 # Check (read-only node verification)
 bash scripts/verify_l4_proxy.sh -c config.env
 
-# Accept — add RUN_SPEED=1 for a real PUT/GET/MD5 through the load balancer
+# Accept — RUN_FUNCTIONAL=1 runs complete small-object checks without load
 S3_ACCESS_KEY=... S3_SECRET_KEY=... \
-  bash scripts/acceptance_l4_proxy.sh CONFIG=config.env RUN_SPEED=1
+  bash scripts/acceptance_l4_proxy.sh CONFIG=config.env RUN_FUNCTIONAL=1
 
 # Operate
 bash scripts/ops_l4_proxy.sh status   CONFIG=config.env
@@ -77,9 +87,6 @@ sudo bash scripts/ops_l4_proxy.sh reload  CONFIG=config.env
 sudo bash scripts/ops_l4_proxy.sh restart CONFIG=config.env
 bash scripts/ops_l4_proxy.sh upstream CONFIG=config.env
 bash scripts/ops_l4_proxy.sh conns    CONFIG=config.env
-
-# Emergency egress unlock
-sudo bash scripts/ops_l4_proxy.sh unlock-egress CONFIG=config.env
 
 # Build a credential-free delivery archive -> dist/s3-l4-proxy.tgz
 bash scripts/package_l4_proxy.sh
@@ -122,20 +129,20 @@ bash scripts/package_l4_proxy.sh
 | Data | Client-side encryption | Encrypt sensitive data with the customer KMS before it leaves the client side; proxy and storage only ever see ciphertext. |
 | Transport | End-to-end TLS | Neither load balancer nor nginx terminates TLS; no certificates or private keys on the proxy. |
 | Ingress | load balancer ACL + security group | Allow only the client's fixed egress IPs; ECS 443 accepts only load balancer/approved sources. |
-| Proxy | Host and egress narrowing | Dedicated host exposes only business port 443; egress limited to DNS, ops dependencies, and the storage private endpoint. |
+| Proxy | Host and network boundary | The dedicated host runs only the stream proxy; the customer's platform team owns security groups, host firewall, and egress policy. |
 | Storage | Least privilege + source restriction | Dedicated sub-account/role scoped to the target bucket; bucket policy pinned to the proxy's real source address. |
 
 - **Enough for most deployments.** Authorization and object-level audit are authoritative in the object storage itself — IAM, bucket policy and audit log all take effect there. Not re-implementing them at the proxy does not make them absent, while decrypting mid-path would add a component holding both plaintext and keys: one more place to defend, rotate and audit.
 - **L4 visibility boundary.** The proxy cannot see encrypted HTTP/S3 semantics, so it does not log bucket, object key, access key, or action. `nginx stream` logs only source, duration, bytes, status and upstream. Object-level traceability comes from the client and the storage audit log; the proxy not collecting it also means no new data-retention surface.
 - **No `ssl`/`ssl_certificate` directives** appear in the generated stream config, and `configure_l4_proxy.sh` fails the run if the rendered config ever contains a variable `proxy_pass`.
 - **PROXY protocol is off by default.** Set `ENABLE_PROXY_PROTOCOL=1` only when the load balancer listener explicitly enables it — a mismatch breaks plain TLS clients.
-- **Egress lock is off by default** so it cannot strand a host with other outbound dependencies. When enabled it uses a dedicated `S3_L4_EGRESS` chain and never flushes existing `OUTPUT` rules; `ops_l4_proxy.sh unlock-egress` reverses it.
+- **Firewall rules are never automated.** Install, configuration, verification, and operations scripts do not write iptables/nftables. The customer owns security groups, host firewall, and egress allowlists.
 - **Credentials never touch the repo.** `config.example.env` holds placeholders only, `.gitignore` blocks `config.env`, and `package_l4_proxy.sh` fails the build if a key-shaped string or private key reaches the archive. Verification scripts read AK/SK from the process environment — note that `speed_test_l4.sh` hands them to `curl --aws-sigv4 --user`, so on a shared host they are briefly visible in the process list; use a dedicated least-privilege test credential.
 
 ## What the installer does
 
 - Handles nginx + the dynamic `stream` module on CentOS/RHEL and Debian/Ubuntu.
-- Backs up nginx config, systemd limits, sysctl, logrotate and iptables to `/var/backups/s3-l4-proxy/<timestamp>` **before** changing anything, and rolls all of it back automatically if any step or `nginx -t` fails.
+- Backs up nginx config, systemd limits, sysctl, logrotate, and the DNS timer to `/var/backups/s3-l4-proxy/<timestamp>` **before** changing anything, and rolls those managed items back automatically if any step or `nginx -t` fails.
 - Sets `worker_rlimit_nofile` / systemd `LimitNOFILE` (default 65535), the network sysctl baseline, stream access logging and log rotation.
 - Installs `s3-l4-dns-reload.timer` to gracefully reload nginx every 5 minutes.
 

@@ -40,7 +40,6 @@ Actions:
   upstream      Resolve and test S3 backend
   config        Print active stream config
   nofile        Apply worker/systemd nofile limit
-  unlock-egress Remove the dedicated S3_L4_EGRESS chain; existing OUTPUT rules are untouched
 USAGE
 }
 
@@ -122,17 +121,6 @@ case "$ACTION" in
     run_systemctl daemon-reload || true
     nginx -t
     echo "nofile configured; restart nginx to apply process limit"
-    ;;
-  unlock-egress)
-    if command -v iptables >/dev/null 2>&1; then
-      chain="${FIREWALL_CHAIN:-S3_L4_EGRESS}"
-      iptables -D OUTPUT -j "$chain" 2>/dev/null || true
-      iptables -F "$chain" 2>/dev/null || true
-      iptables -X "$chain" 2>/dev/null || true
-      echo "dedicated egress chain removed: $chain"
-    else
-      echo "iptables not found"
-    fi
     ;;
   *)
     usage

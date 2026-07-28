@@ -58,7 +58,7 @@ getent hosts "$S3_BACKEND_HOST"                  # DNS resolves at all
 curl -sk -o /dev/null -w '%{http_code}\n' "https://$S3_BACKEND_HOST/"
 ```
 
-**Common causes.** The private endpoint is not routable from this subnet; a security group blocks egress 443; the egress lock is on and the backend IP set changed; DNS returns a public endpoint the private network does not route.
+**Common causes.** The private endpoint is not routable from this subnet; a security group or customer-managed host firewall blocks egress 443; DNS returns a public endpoint the private network does not route.
 
 ---
 
@@ -72,20 +72,6 @@ curl -sk -o /dev/null -w '%{http_code}\n' "https://$S3_BACKEND_HOST/"
 systemctl status s3-l4-dns-reload.timer
 sudo bash scripts/ops_l4_proxy.sh reload CONFIG=config.env   # force it now
 ```
-
----
-
-## Locked out after enabling the egress lock
-
-**Cause.** `EGRESS_LOCK=1` allows established traffic, loopback, `SSH_PORT`, DNS, `EXTRA_ALLOW` and the resolved backend IPs. Anything else — monitoring agents, package mirrors, NTP — is rejected.
-
-**Fix.**
-
-```bash
-sudo bash scripts/ops_l4_proxy.sh unlock-egress CONFIG=config.env
-```
-
-This removes only the dedicated `S3_L4_EGRESS` chain; your other `OUTPUT` rules are untouched. Add the missing destinations to `EXTRA_ALLOW` before re-enabling.
 
 ---
 
@@ -127,7 +113,7 @@ A 403 arriving at all is actually a *good* signal: TLS completed end to end and 
 
 ## Rolling back a bad change
 
-`configure_l4_proxy.sh` backs up nginx config, stream config, systemd limits, logrotate, sysctl, the DNS timer and iptables to `/var/backups/s3-l4-proxy/<timestamp>-<pid>/` **before** touching anything, and restores all of it automatically if any step or `nginx -t` fails.
+`configure_l4_proxy.sh` backs up nginx config, stream config, systemd limits, logrotate, sysctl, and the DNS timer to `/var/backups/s3-l4-proxy/<timestamp>-<pid>/` **before** touching anything, and restores those managed items automatically if any step or `nginx -t` fails. Firewall policy is not modified.
 
 To roll back manually:
 

@@ -160,7 +160,7 @@ TOS Bucket Policy：桶级与对象级权限拆分
 - CentOS/RHEL、Debian/Ubuntu nginx 与动态 stream 模块适配。
 - 固定 upstream，避免变量式 `proxy_pass` 的周期性连接重置。
 - 配置前备份；失败自动回滚 nginx、systemd limit、sysctl 和独立防火墙链。
-- 专用 `S3_L4_EGRESS` 防火墙链，不清空企业已有 OUTPUT 规则。
+- 自动化不修改 iptables/nftables；安全组、主机防火墙与出向策略由客户平台团队统一管理。
 - systemd 托管、句柄上限、sysctl、stream 日志、logrotate。
 - 每 5 分钟平滑 reload nginx，刷新非变量 upstream 的 DNS 解析结果。
 - 一键部署、一键巡检、一键验收、一键运维和打包密钥扫描。

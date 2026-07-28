@@ -15,11 +15,10 @@ Important options:
   MAIN_MODE=auto|replace
   DEDICATED_PROXY_HOST=1|0
   HARDEN=1|0
-  EGRESS_LOCK=1|0
-  EGRESS_UNLOCK=1|0
 
 Legacy TOS_ENDPOINT is accepted as an alias for S3_BACKEND_HOST.
 This script configures only protocol-transparent L4 nginx stream passthrough.
+Host firewall and cloud security-group policies are intentionally not modified.
 USAGE
 }
 
@@ -64,17 +63,12 @@ load_config() {
   MAIN_MODE="${MAIN_MODE:-replace}"
   HARDEN="${HARDEN:-1}"
   DEDICATED_PROXY_HOST="${DEDICATED_PROXY_HOST:-1}"
-  EGRESS_LOCK="${EGRESS_LOCK:-0}"
-  EGRESS_UNLOCK="${EGRESS_UNLOCK:-0}"
-  SSH_PORT="${SSH_PORT:-22}"
-  EXTRA_ALLOW="${EXTRA_ALLOW:-}"
   NOFILE="${NOFILE:-65535}"
   APPLY_SYSCTL="${APPLY_SYSCTL:-1}"
   ENABLE_PROXY_PROTOCOL="${ENABLE_PROXY_PROTOCOL:-0}"
   INSTALL_DNS_RELOAD_TIMER="${INSTALL_DNS_RELOAD_TIMER:-1}"
   DNS_RELOAD_INTERVAL="${DNS_RELOAD_INTERVAL:-5min}"
   BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/s3-l4-proxy}"
-  FIREWALL_CHAIN="${FIREWALL_CHAIN:-S3_L4_EGRESS}"
   if [ -z "$NGINX_USER" ]; then
     if getent passwd nginx >/dev/null 2>&1; then
       NGINX_USER=nginx
@@ -264,54 +258,11 @@ install_runtime_baseline() {
   fi
 }
 
-egress_unlock() {
-  command -v iptables >/dev/null 2>&1 || { log "iptables not found; skip unlock"; return; }
-  iptables -D OUTPUT -j "$FIREWALL_CHAIN" 2>/dev/null || true
-  iptables -F "$FIREWALL_CHAIN" 2>/dev/null || true
-  iptables -X "$FIREWALL_CHAIN" 2>/dev/null || true
-  log "removed dedicated egress chain $FIREWALL_CHAIN"
-}
-
-egress_lock() {
-  [ "$EGRESS_LOCK" = "1" ] || { log "skip egress lock; EGRESS_LOCK!=1"; return; }
-  command -v iptables >/dev/null 2>&1 || { log "iptables not found; skip egress lock"; return; }
-
-  local ips
-  ips="$(getent ahostsv4 "$S3_BACKEND_HOST" 2>/dev/null | awk '{print $1}' | sort -u)"
-  [ -n "$ips" ] || die "cannot resolve $S3_BACKEND_HOST for egress lock"
-
-  iptables -N "$FIREWALL_CHAIN" 2>/dev/null || true
-  iptables -F "$FIREWALL_CHAIN"
-  iptables -A "$FIREWALL_CHAIN" -m state --state ESTABLISHED,RELATED -j ACCEPT
-  iptables -A "$FIREWALL_CHAIN" -o lo -j ACCEPT
-  iptables -A "$FIREWALL_CHAIN" -p tcp --dport "$SSH_PORT" -j ACCEPT
-  iptables -A "$FIREWALL_CHAIN" -p udp --dport 53 -j ACCEPT
-  iptables -A "$FIREWALL_CHAIN" -p tcp --dport 53 -j ACCEPT
-
-  local extra
-  IFS=',' read -r -a extras <<< "$EXTRA_ALLOW"
-  for extra in "${extras[@]}"; do
-    extra="$(printf '%s' "$extra" | tr -d ' ')"
-    [ -z "$extra" ] && continue
-    iptables -A "$FIREWALL_CHAIN" -d "$extra" -j ACCEPT
-  done
-
-  local ip
-  for ip in $ips; do
-    iptables -A "$FIREWALL_CHAIN" -p tcp -d "$ip" --dport "$S3_BACKEND_PORT" -j ACCEPT
-  done
-  iptables -A "$FIREWALL_CHAIN" -j REJECT
-  iptables -C OUTPUT -j "$FIREWALL_CHAIN" 2>/dev/null || iptables -I OUTPUT 1 -j "$FIREWALL_CHAIN"
-  log "enabled dedicated egress chain for ${S3_BACKEND_HOST}:${S3_BACKEND_PORT}"
-}
-
 run_hardening() {
-  [ "$EGRESS_UNLOCK" = "1" ] && { egress_unlock; return; }
   [ "$HARDEN" = "1" ] || { log "skip hardening; HARDEN!=1"; return; }
   disable_default_http
   set_nofile_limits
   install_runtime_baseline
-  egress_lock
 }
 
 test_and_reload() {
@@ -341,9 +292,6 @@ backup_state() {
     cp -a /etc/systemd/system/s3-l4-dns-reload.service "$RUN_BACKUP/dns-reload.service"
   [ -f /etc/systemd/system/s3-l4-dns-reload.timer ] && \
     cp -a /etc/systemd/system/s3-l4-dns-reload.timer "$RUN_BACKUP/dns-reload.timer"
-  if command -v iptables-save >/dev/null 2>&1; then
-    iptables-save > "$RUN_BACKUP/iptables.rules" 2>/dev/null || true
-  fi
   log "backup created: $RUN_BACKUP"
 }
 
@@ -358,9 +306,6 @@ rollback_state() {
   fi
   if [ -f "$RUN_BACKUP/legacy-stream.conf" ]; then
     cp -a "$RUN_BACKUP/legacy-stream.conf" "$LEGACY_CONF_PATH"
-  fi
-  if [ -s "$RUN_BACKUP/iptables.rules" ] && command -v iptables-restore >/dev/null 2>&1; then
-    iptables-restore < "$RUN_BACKUP/iptables.rules" 2>/dev/null || true
   fi
   if [ -f "$RUN_BACKUP/limits.conf" ]; then
     mkdir -p /etc/systemd/system/nginx.service.d

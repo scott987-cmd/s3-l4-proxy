@@ -24,6 +24,10 @@ if grep -En '^(AWS_SECRET_ACCESS_KEY|S3_SECRET_KEY|TOS_SK)=.+' \
   exit 1
 fi
 
-tar -C "$STAGE" -czf "$OUTPUT" s3-l4-proxy
+tar_metadata_args=(--no-xattrs)
+if tar --version 2>/dev/null | grep -qi 'bsdtar'; then
+  tar_metadata_args+=(--no-mac-metadata)
+fi
+COPYFILE_DISABLE=1 tar "${tar_metadata_args[@]}" -C "$STAGE" -czf "$OUTPUT" s3-l4-proxy
 echo "[package] created $OUTPUT"
 tar -tzf "$OUTPUT"

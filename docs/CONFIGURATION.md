@@ -55,23 +55,23 @@ Never commit `config.env` — `.gitignore` blocks it.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `HARDEN` | `1` | Apply nofile limits, sysctl, logrotate, DNS reload timer, and the egress chain step. |
+| `HARDEN` | `1` | Apply nofile limits, sysctl, logrotate, and the DNS reload timer. |
 | `NOFILE` | `65535` | `worker_rlimit_nofile` and systemd `LimitNOFILE`. |
 | `APPLY_SYSCTL` | `1` | Install the network sysctl baseline to `/etc/sysctl.d/99-s3-l4-proxy.conf`. |
 | `INSTALL_DNS_RELOAD_TIMER` | `1` | Install and enable `s3-l4-dns-reload.timer`. |
 | `DNS_RELOAD_INTERVAL` | `5min` | Timer interval — any systemd time span (`30s`, `5min`, `1h`). |
 | `BACKUP_ROOT` | `/var/backups/s3-l4-proxy` | Where per-run backups are written before any change. |
-| `EGRESS_LOCK` | `0` | `1` builds the `S3_L4_EGRESS` chain allowing only established traffic, loopback, SSH, DNS, `EXTRA_ALLOW`, and the resolved backend IPs — everything else is rejected. **Off by default so it cannot strand a host.** |
-| `EGRESS_UNLOCK` | `0` | `1` removes the chain and skips all other hardening for that run. |
-| `FIREWALL_CHAIN` | `S3_L4_EGRESS` | Name of the dedicated iptables chain. Existing `OUTPUT` rules are never flushed. |
-| `SSH_PORT` | `22` | Port kept open by the egress lock so you cannot lock yourself out. |
-| `EXTRA_ALLOW` | *(empty)* | Comma-separated extra egress destinations (monitoring, package mirrors, NTP). Add these **before** enabling the lock. |
+
+The toolkit intentionally does not configure iptables/nftables or cloud
+security groups. Ingress ACLs, host firewall, and egress policy stay under the
+customer's platform controls.
 
 ## Verification and testing
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `RUN_SPEED` | `0` | `1` makes acceptance run a real PUT/GET/MD5 through the load balancer. Requires `LB_IP`, `S3_CLIENT_HOST` and credentials. |
+| `RUN_FUNCTIONAL` | `0` | `1` runs the small-object functional suite without performance load. Requires `LB_IP`, `S3_CLIENT_HOST` and credentials. |
 | `SIZE_MB` | `100` | Test object size. The example config ships `100`; use a large object for any capacity claim. |
 | `OBJECT_PREFIX` | `l4-proxy-test` | Test object key prefix. |
 | `LOG_FILE` | `/var/log/nginx/s3-stream.log` | Log tailed by `ops_l4_proxy.sh logs`. |
@@ -129,6 +129,10 @@ DEDICATED_PROXY_HOST=0
 LISTEN_PORT=8443          # avoid colliding with the existing 443 listener
 STREAM_DIR=/etc/nginx/stream.d
 ```
+
+Client-side diagnostics map `S3_CLIENT_HOST:443` to `LB_IP:LISTEN_PORT` with
+curl `--connect-to`. Do not put `:8443` in the S3 URL: doing so also changes
+the HTTP Host used for virtual-host routing and SigV4 signing.
 
 AWS S3 via a VPC endpoint:
 

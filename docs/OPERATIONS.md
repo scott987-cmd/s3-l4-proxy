@@ -94,13 +94,12 @@ S3_ACCESS_KEY=... S3_SECRET_KEY=... SIZE_MB=500 \
 4. Watch load balancer health and the stream log for one interval.
 5. Repeat on the next node.
 
-Automatic rollback covers nginx config, stream config, systemd limits, logrotate, sysctl, the DNS timer, and iptables. Manual rollback is in [TROUBLESHOOTING.md](TROUBLESHOOTING.md#rolling-back-a-bad-change).
+Automatic rollback covers nginx config, stream config, systemd limits, logrotate, sysctl, and the DNS timer. Firewall policy is outside this toolkit. Manual rollback is in [TROUBLESHOOTING.md](TROUBLESHOOTING.md#rolling-back-a-bad-change).
 
 ## Emergency
 
 | Situation | Action |
 | --- | --- |
-| Egress lock cut off a dependency | `sudo bash scripts/ops_l4_proxy.sh unlock-egress CONFIG=config.env` — removes only the `S3_L4_EGRESS` chain |
 | nginx will not start | `nginx -t` for the reason, then restore from `/var/backups/s3-l4-proxy/` |
 | One node degraded | Remove from the load balancer backend group; the remaining nodes absorb traffic (this is why N+1 matters) |
 | Backend unreachable from one node | `bash scripts/ops_l4_proxy.sh upstream CONFIG=config.env` — DNS result plus an HTTPS probe with timing |
